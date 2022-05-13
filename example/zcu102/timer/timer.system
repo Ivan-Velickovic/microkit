@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<system>
+
+    <!--
+      Xilinx Zynq UltraScale+ user guide p176:
+      RTC registers are mapped in a 4 KB space starting at 0xFFA6_0000.
+    -->
+    <memory_region name="rtclock" size="0x1_000" phys_addr="0xFFA6_0000" />
+
+    <protection_domain name="timer" priority="254">
+        <program_image path="timer.elf" />
+        <map mr="rtclock"
+             vaddr="0x2_000_000"
+             perms="rw"
+             cached="false"
+             setvar_vaddr="rtclock_vaddr"
+        />
+        <irq irq="58" id="8" /> <!-- RTC_ALARM -->
+        <irq irq="59" id="9" /> <!-- RTC_SECONDS -->
+        <!-- IRQs 58, 59 should be mapped to 26,27 (see GIC). -->
+    </protection_domain>
+</system>
