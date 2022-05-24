@@ -46,9 +46,35 @@ static void puthex32(uint32_t x)
     sel4cp_dbg_puts(buffer);
 }
 
+static void
+puthex64(uint64_t x)
+{
+    char buffer[19];
+    buffer[0] = '0';
+    buffer[1] = 'x';
+    buffer[2] = hexchar((x >> 60) & 0xf);
+    buffer[3] = hexchar((x >> 56) & 0xf);
+    buffer[4] = hexchar((x >> 52) & 0xf);
+    buffer[5] = hexchar((x >> 48) & 0xf);
+    buffer[6] = hexchar((x >> 44) & 0xf);
+    buffer[7] = hexchar((x >> 40) & 0xf);
+    buffer[8] = hexchar((x >> 36) & 0xf);
+    buffer[9] = hexchar((x >> 32) & 0xf);
+    buffer[10] = hexchar((x >> 28) & 0xf);
+    buffer[11] = hexchar((x >> 24) & 0xf);
+    buffer[12] = hexchar((x >> 20) & 0xf);
+    buffer[13] = hexchar((x >> 16) & 0xf);
+    buffer[14] = hexchar((x >> 12) & 0xf);
+    buffer[15] = hexchar((x >> 8) & 0xf);
+    buffer[16] = hexchar((x >> 4) & 0xf);
+    buffer[17] = hexchar(x & 0xf);
+    buffer[18] = 0;
+    sel4cp_dbg_puts(buffer);
+}
+
 /*****************************************************************************/
 
-uintptr_t rtclock_vaddr;
+uintptr_t rtclock_vaddr __attribute__ ((section (".data")));
 
 /*
  * RTC clock register map (page 176).
@@ -77,25 +103,25 @@ uintptr_t rtclock_vaddr;
 #define SEL4CP_RTC_SECONDS_INTID   9
 
 #define RTC_CALIB_MASK      0x1FFFFF
-#define RTC_REG(offset) (rtclock_vaddr + offset);
+#define RTC_REG(offset) ((volatile uint32_t*)(rtclock_vaddr + offset))
 
 #define ALARM_NUM_SECONDS 4
 
 
 uint32_t read_time()
 {
-    return *(volatile uint32_t*) RTC_REG(RTC_CURRENT_TIME);
+    return *RTC_REG(RTC_CURRENT_TIME);
 }
 
 void set_time(uint32_t to)
 {
-    *(volatile uint32_t*) (rtclock_vaddr + RTC_SET_TIME_WRITE) = to;
+    *RTC_REG(RTC_SET_TIME_WRITE) = to;
 }
 
 void set_alarm(uint32_t seconds)
 {
     uint32_t target = read_time() + seconds;
-    *(volatile uint32_t*) (rtclock_vaddr + RTC_ALARM) = target;
+    *RTC_REG(RTC_ALARM) = target;
 }
 
 void init_time()
@@ -103,34 +129,25 @@ void init_time()
     // Xilinx Zynq UltraScale+ user guide p178:
     // Init RTC programming sequence
 
-    volatile uint32_t* rtc_int_disable = (volatile uint32_t*) RTC_REG(RTC_INT_DISABLE);
-    *rtc_int_disable = 0x03; // @ivanv: check
+    *RTC_REG(RTC_INT_DISABLE) = 0x03; // @ivanv: check
 
-    volatile uint32_t* rtc_int_enable = (volatile uint32_t*) RTC_REG(RTC_INT_ENABLE);
-    *rtc_int_enable = 0x03; // @ivanv: check
+    *RTC_REG(RTC_INT_ENABLE) = 0x03; // @ivanv: check
 
-    volatile uint32_t* rtc_calib_write = (volatile uint32_t*) RTC_REG(RTC_CALIB_WRITE);
     /* Want to reset then add mask which is why we're doing = and not &= */
-    *rtc_calib_write = RTC_CALIB_MASK;
+    *RTC_REG(RTC_CALIB_WRITE) = RTC_CALIB_MASK;
 
-    volatile uint32_t* rtc_calib_read = (volatile uint32_t*) RTC_REG(RTC_CALIB_READ);
+    assert(*RTC_REG(RTC_CALIB_READ) == RTC_CALIB_MASK);
 
-    assert(rtc_calib_read[0] == RTC_CALIB_MASK);
+    *RTC_REG(RTC_ALARM) = 0;
 
-    volatile uint32_t* rtc_alarm = (volatile uint32_t*) RTC_REG(RTC_ALARM);
-    rtc_alarm[0] = 0;
-
-    volatile uint32_t* rtc_control = (volatile uint32_t*) RTC_REG(RTC_CONTROL);
-    rtc_control[0] = BIT(24);
+    *RTC_REG(RTC_CONTROL) = BIT(24);
     // rtc_control[0] &= ~BIT(31);
 
-    volatile uint32_t* rtc_int_status = (volatile uint32_t*) RTC_REG(RTC_INT_STATUS);
-    *rtc_int_status = 0;
+    *RTC_REG(RTC_INT_STATUS) = 0;
 }
 
 static inline void clear_int_status() {
-    volatile uint32_t* rtc_int_status = (volatile uint32_t*) RTC_REG(RTC_INT_STATUS);
-    *rtc_int_status = 0x03;
+    *RTC_REG(RTC_INT_STATUS) = 0x03;
 }
 
 /*****************************************************************************/
