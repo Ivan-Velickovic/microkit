@@ -17,6 +17,14 @@ list(
 )
 
 include(${CMAKE_CURRENT_LIST_DIR}/settings.cmake)
+if(NOT DEFINED SEL4CP_BUILD_DIR)
+    message(FATAL_ERROR "SEL4CP_BUILD_DIR not defined.")
+elseif(NOT DEFINED SEL4CP_CDL_FILENAME)
+    message(FATAL_ERROR "SEL4CP_CDL_FILENAME not defined.")
+elseif(NOT DEFINED SEL4CP_ELF_FILENAMES)
+    message(FATAL_ERROR "SEL4CP_ELF_FILENAMES not defined.")
+endif()
+
 # FIXME: use non mcs kernel for case initializer
 set(KernelIsMCS ON)
 set(CROSS_COMPILER_PREFIX "aarch64-none-elf-")
@@ -55,14 +63,26 @@ musllibc_setup_build_environment_with_sel4runtime()
 CapDLToolInstall(install_capdl_tool CAPDL_TOOL_BINARY)
 capdl_import_project()
 set(CapDLStaticAlloc OFF)
-file(COPY "${SEL4CP_BUILD_DIR}/${CDL_TARGET}" DESTINATION "${CMAKE_CURRENT_BINARY_DIR}")
+set(CDL_TARGET "${CMAKE_CURRENT_BINARY_DIR}/${SEL4CP_CDL_FILENAME}")
+set(SEL4CP_CDL_FILE "${SEL4CP_BUILD_DIR}/${SEL4CP_CDL_FILENAME}")
+# from https://stackoverflow.com/a/55184207
+add_custom_target(copy_cdl DEPENDS "${CDL_TARGET}")
+add_custom_command(OUTPUT "${CDL_TARGET}"
+                   COMMAND ${CMAKE_COMMAND} -E copy "${SEL4CP_CDL_FILE}" "${CDL_TARGET}"
+                   DEPENDS "${SEL4CP_CDL_FILE}")
 CapDLToolCFileGen(capdl_c_spec_target capdl_spec.c ${CapDLStaticAlloc} "$<TARGET_PROPERTY:object_sizes,FILE_PATH>" "${CDL_TARGET}" "${CAPDL_TOOL_BINARY}"
-    DEPENDS install_capdl_tool "${CAPDL_TOOL_BINARY}")
+    DEPENDS copy_cdl install_capdl_tool "${CAPDL_TOOL_BINARY}")
 
-file(GLOB CDL_ELF_SOURCES CONFIGURE_DEPENDS "${SEL4CP_BUILD_DIR}/*.elf")
-file(COPY ${CDL_ELF_SOURCES} DESTINATION "${CMAKE_CURRENT_BINARY_DIR}" FILES_MATCHING PATTERN "*.elf")
-file(GLOB CDL_ELFS CONFIGURE_DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/*.elf")
-
+set(SEL4CP_ELFS "")
+set(CDL_ELFS "")
+foreach(elf IN LISTS SEL4CP_ELF_FILENAMES)
+    list(APPEND SEL4CP_ELFS "${SEL4CP_BUILD_DIR}/${elf}") 
+    list(APPEND CDL_ELFS "${CMAKE_CURRENT_BINARY_DIR}/${elf}") 
+endforeach()
+add_custom_target(copy_elfs DEPENDS ${CDL_ELFS})
+add_custom_command(OUTPUT ${CDL_ELFS}
+                   COMMAND ${CMAKE_COMMAND} -E copy ${SEL4CP_ELFS} "${CMAKE_CURRENT_BINARY_DIR}"
+                   DEPENDS ${SEL4CP_ELFS})
 BuildCapDLApplication(C_SPEC capdl_spec.c
 ELF ${CDL_ELFS}
 DEPENDS capdl_c_spec_target
@@ -72,6 +92,6 @@ include(rootserver)
 DeclareRootserver(capdl-loader)
 
 if("${PLATFORM}" STREQUAL "qemu-arm-virt")
-  include(simulation)
-  GenerateSimulateScript()
+    include(simulation)
+    GenerateSimulateScript()
 endif()
