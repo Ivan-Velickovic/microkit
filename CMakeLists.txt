@@ -16,12 +16,7 @@ list(
         "${CMAKE_CURRENT_LIST_DIR}/seL4_tools/elfloader-tool"
 )
 
-set(SEL4CP_BUILD_DIR "${CMAKE_CURRENT_SOURCE_DIR}/tmp_build/hello-goodbye")
-set(CDL_TARGET "hello.cdl")
-
-if("${PLATFORM}" STREQUAL "")
-  set(PLATFORM "zynqmp")
-endif()
+include(${CMAKE_CURRENT_LIST_DIR}/settings.cmake)
 # FIXME: use non mcs kernel for case initializer
 set(KernelIsMCS ON)
 set(CROSS_COMPILER_PREFIX "aarch64-none-elf-")

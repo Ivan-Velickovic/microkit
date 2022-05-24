@@ -1,0 +1,3 @@
+set(SEL4CP_BUILD_DIR "${CMAKE_CURRENT_LIST_DIR}/tmp_build/timer" CACHE STRING "")
+set(CDL_TARGET "timer.cdl" CACHE STRING "")
+set(PLATFORM "zynqmp" CACHE STRING "")
