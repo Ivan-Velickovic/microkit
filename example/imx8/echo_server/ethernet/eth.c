@@ -16,11 +16,11 @@
 #define CCM_VADDR   0x2200000
 #define MDC_FREQ    20000000UL
 
-uintptr_t hw_ring_buffer_vaddr;
-uintptr_t hw_ring_buffer_paddr;
+uintptr_t hw_ring_buffer_vaddr __attribute__ ((section (".data")));
+uintptr_t hw_ring_buffer_paddr __attribute__ ((section (".data")));
 
-uintptr_t packet_buffer_vaddr;
-uintptr_t packet_buffer_paddr;
+uintptr_t packet_buffer_vaddr __attribute__ ((section (".data")));
+uintptr_t packet_buffer_paddr __attribute__ ((section (".data")));
 
 /* Make the minimum frame buffer 2k. This is a bit of a waste of memory, but ensure alignment */
 #define PACKET_BUFFER_SIZE (2 * 1024)

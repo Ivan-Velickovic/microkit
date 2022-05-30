@@ -39,6 +39,7 @@ LIBS := -lsel4cp -Tsel4cp.ld
 
 IMAGE_FILE = $(BUILD_DIR)/loader.img
 REPORT_FILE = $(BUILD_DIR)/report.txt
+CDL_FILE = $(BUILD_DIR)/eth.cdl
 
 all: $(IMAGE_FILE)
 
@@ -51,6 +52,5 @@ $(BUILD_DIR)/%.o: %.s Makefile
 $(BUILD_DIR)/eth.elf: $(addprefix $(BUILD_DIR)/, $(ETH_OBJS))
 	$(LD) $(LDFLAGS) $^ $(LIBS) -o $@
 
-
-$(IMAGE_FILE) $(REPORT_FILE): $(addprefix $(BUILD_DIR)/, $(IMAGES)) eth.system
-	$(SEL4CP_TOOL) eth.system --search-path $(BUILD_DIR) --board $(SEL4CP_BOARD) --config $(SEL4CP_CONFIG) -o $(IMAGE_FILE) -r $(REPORT_FILE)
+$(IMAGE_FILE) $(REPORT_FILE) $(CDL_FILE): $(addprefix $(BUILD_DIR)/, $(IMAGES)) eth.system
+	$(SEL4CP_TOOL) eth.system --search-path $(BUILD_DIR) --board $(SEL4CP_BOARD) --config $(SEL4CP_CONFIG) -o $(IMAGE_FILE) -r $(REPORT_FILE) -c $(CDL_FILE)
