@@ -74,18 +74,20 @@ SUPPORTED_BOARDS = (
         }
     ),
     BoardInfo(
-        name="qemuarmvirt",
+        name="imx8mm",
         gcc_cpu="cortex-a53",
-        loader_link_address=0x50000000,
+        loader_link_address=0x41000000,
         kernel_options = {
-            "KernelPlatform": "qemu-arm-virt",
+            "KernelPlatform": "imx8mm-evk",
             "KernelIsMCS": True,
             "KernelArmExportPCNTUser": True,
+            "KernelArmExportPMUUser": True,
+            "KernelBenchmarks": "track_utilisation",
         },
         examples = {
-            "hello": Path("example/qemuarmvirt/hello")
+            "eth": Path("example/imx8/echo_server/ethernet")
         }
-    )
+    ),
 )
 
 SUPPORTED_CONFIGS = (
