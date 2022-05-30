@@ -43,8 +43,6 @@ sel4_import_kernel()
 if(KernelArchARM)
     ApplyData61ElfLoaderSettings(${KernelPlatform} ${KernelSel4Arch})
 endif()
-# zynqmp should be using elf in newer version of ApplyData61ElfLoaderSettings
-set(ElfloaderImage "elf" CACHE STRING "" FORCE)
 find_package(elfloader-tool REQUIRED)
 elfloader_import_project()
 
