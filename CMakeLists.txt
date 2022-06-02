@@ -28,8 +28,6 @@ endif()
 # FIXME: use non mcs kernel for case initializer
 set(KernelIsMCS ON)
 set(CROSS_COMPILER_PREFIX "aarch64-none-elf-")
-# zf_log_debug
-# set(LibUtilsDefaultZfLogLevel 2)
 set(CapDLLoaderMaxObjects 20000)
 set(KernelRootCNodeSizeBits 17)
 
