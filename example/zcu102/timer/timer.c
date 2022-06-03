@@ -17,11 +17,14 @@ TODO/notes:
 /* Util stuff */
 #define BIT(x)  (1UL << (x))
 
-static void assert(bool value) {
-    if (value) return;
+static void assert(bool value)
+{
+    if (value) {
+        return;
+    }
 
     sel4cp_dbg_puts("Assertion failed\n");
-    while (true) {}
+    asm volatile("udf 0");
 }
 
 static char hexchar(unsigned int v)
@@ -45,34 +48,6 @@ static void puthex32(uint32_t x)
     buffer[10] = 0;
     sel4cp_dbg_puts(buffer);
 }
-
-static void
-puthex64(uint64_t x)
-{
-    char buffer[19];
-    buffer[0] = '0';
-    buffer[1] = 'x';
-    buffer[2] = hexchar((x >> 60) & 0xf);
-    buffer[3] = hexchar((x >> 56) & 0xf);
-    buffer[4] = hexchar((x >> 52) & 0xf);
-    buffer[5] = hexchar((x >> 48) & 0xf);
-    buffer[6] = hexchar((x >> 44) & 0xf);
-    buffer[7] = hexchar((x >> 40) & 0xf);
-    buffer[8] = hexchar((x >> 36) & 0xf);
-    buffer[9] = hexchar((x >> 32) & 0xf);
-    buffer[10] = hexchar((x >> 28) & 0xf);
-    buffer[11] = hexchar((x >> 24) & 0xf);
-    buffer[12] = hexchar((x >> 20) & 0xf);
-    buffer[13] = hexchar((x >> 16) & 0xf);
-    buffer[14] = hexchar((x >> 12) & 0xf);
-    buffer[15] = hexchar((x >> 8) & 0xf);
-    buffer[16] = hexchar((x >> 4) & 0xf);
-    buffer[17] = hexchar(x & 0xf);
-    buffer[18] = 0;
-    sel4cp_dbg_puts(buffer);
-}
-
-/*****************************************************************************/
 
 uintptr_t rtclock_vaddr __attribute__ ((section (".data")));
 
@@ -104,53 +79,45 @@ uintptr_t rtclock_vaddr __attribute__ ((section (".data")));
 
 #define RTC_CALIB_MASK      0x1FFFFF
 #define RTC_REG(offset) ((volatile uint32_t*)(rtclock_vaddr + offset))
+#define RTC_ALARM_MASK      BIT(1)
 
-#define ALARM_NUM_SECONDS 4
-
+void clear_int_status()
+{
+    *RTC_REG(RTC_INT_STATUS) = 3;
+}
 
 uint32_t read_time()
 {
-    return *RTC_REG(RTC_CURRENT_TIME);
+    uint32_t status = *RTC_REG(RTC_INT_STATUS);
+    if (status & 1) {
+        return *RTC_REG(RTC_CURRENT_TIME);
+    } else {
+        return *RTC_REG(RTC_SET_TIME_READ) - 1;
+    }
 }
 
 void set_time(uint32_t to)
 {
-    *RTC_REG(RTC_SET_TIME_WRITE) = to;
+    // p177 programming notes
+    *RTC_REG(RTC_CALIB_WRITE) = 0x198231;
+    *RTC_REG(RTC_SET_TIME_WRITE) = to + 1;
+    *RTC_REG(RTC_INT_STATUS) = 1;
 }
 
 void set_alarm(uint32_t seconds)
 {
     uint32_t target = read_time() + seconds;
     *RTC_REG(RTC_ALARM) = target;
+    clear_int_status();
 }
 
 void init_time()
 {
-    // Xilinx Zynq UltraScale+ user guide p178:
-    // Init RTC programming sequence
-
-    *RTC_REG(RTC_INT_DISABLE) = 0x03; // @ivanv: check
-
-    *RTC_REG(RTC_INT_ENABLE) = 0x03; // @ivanv: check
-
-    /* Want to reset then add mask which is why we're doing = and not &= */
-    *RTC_REG(RTC_CALIB_WRITE) = RTC_CALIB_MASK;
-
-    assert(*RTC_REG(RTC_CALIB_READ) == RTC_CALIB_MASK);
-
-    *RTC_REG(RTC_ALARM) = 0;
-
-    *RTC_REG(RTC_CONTROL) = BIT(24);
-    // rtc_control[0] &= ~BIT(31);
-
-    *RTC_REG(RTC_INT_STATUS) = 0;
+    *RTC_REG(RTC_CALIB_WRITE) = 0x198231;
+    *RTC_REG(RTC_CONTROL) = BIT(31) | BIT(24);
+    clear_int_status();
+    *RTC_REG(RTC_INT_ENABLE) = 0x03;
 }
-
-static inline void clear_int_status() {
-    *RTC_REG(RTC_INT_STATUS) = 0x03;
-}
-
-/*****************************************************************************/
 
 void init(void)
 {
@@ -164,17 +131,11 @@ void init(void)
     sel4cp_dbg_puts("\n");
 
     sel4cp_dbg_puts("timer: setting time\n");
-    set_time(0xDEAFBABE);
-
-    sel4cp_dbg_puts("timer: reading time\n");
-    current_time = read_time();
-    sel4cp_dbg_puts("timer: read ");
-    puthex32(current_time);
-    sel4cp_dbg_puts("\n");
+    set_time(0xdeadbeef);
+    assert(read_time() == 0xdeadbeef);
 
     sel4cp_dbg_puts("timer: setting alarm for 4 seconds\n");
-    // FIXME: why does the alarm go off at 0xdeafbac2 instead of 0xdeafbac3?
-    set_alarm(ALARM_NUM_SECONDS);
+    set_alarm(4);
 }
 
 void notified(sel4cp_channel ch)
@@ -183,25 +144,21 @@ void notified(sel4cp_channel ch)
     uint32_t current_time = read_time();
     clear_int_status();
 
-    switch(ch) {
-        case SEL4CP_RTC_ALARM_INTID:
-            sel4cp_dbg_puts("timer: alarm at time ");
-            puthex32(current_time);
-            sel4cp_dbg_puts("\n");
-            set_alarm(ALARM_NUM_SECONDS);
-            sel4cp_irq_ack(ch);
-            break;
-        case SEL4CP_RTC_SECONDS_INTID:
-            sel4cp_dbg_puts("timer: read time ");
-            puthex32(current_time);
-            sel4cp_dbg_puts("\n");
-            sel4cp_irq_ack(ch);
-            break;
-        default:
-            sel4cp_dbg_puts("timer: unknown notification fault\n");
-            break;
+    switch (ch) {
+    case SEL4CP_RTC_ALARM_INTID:
+        sel4cp_dbg_puts("timer: alarm at time ");
+        puthex32(current_time);
+        sel4cp_dbg_puts("\n");
+        break;
+    case SEL4CP_RTC_SECONDS_INTID:
+        break;
+    default:
+        sel4cp_dbg_puts("timer: unknown notification fault\n");
+        assert(false);
+        break;
     }
 
+    sel4cp_irq_ack(ch);
     /* And I think we need to clear after "handling" an interrupt.
        Basically acking it, but sel4cp_irq_ack only deals with acking
        it with seL4 (?). */
