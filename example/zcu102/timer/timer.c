@@ -133,9 +133,6 @@ void init(void)
     sel4cp_dbg_puts("timer: setting time\n");
     set_time(0xdeadbeef);
     assert(read_time() == 0xdeadbeef);
-
-    sel4cp_dbg_puts("timer: setting alarm for 4 seconds\n");
-    set_alarm(4);
 }
 
 void notified(sel4cp_channel ch)
@@ -146,11 +143,11 @@ void notified(sel4cp_channel ch)
 
     switch (ch) {
     case SEL4CP_RTC_ALARM_INTID:
-        sel4cp_dbg_puts("timer: alarm at time ");
-        puthex32(current_time);
-        sel4cp_dbg_puts("\n");
         break;
     case SEL4CP_RTC_SECONDS_INTID:
+        sel4cp_dbg_puts("timer: read time ");
+        puthex32(current_time);
+        sel4cp_dbg_puts("\n");
         break;
     default:
         sel4cp_dbg_puts("timer: unknown notification fault\n");
