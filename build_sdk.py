@@ -728,6 +728,7 @@ def build_sel4_config_component(
 def main() -> None:
     parser = ArgumentParser()
     parser.add_argument("--sel4", type=Path, required=True)
+    parser.add_argument("--board", help="Target board")
     args = parser.parse_args()
     sel4_dir = args.sel4.expanduser()
     if not sel4_dir.exists():
@@ -742,7 +743,17 @@ def main() -> None:
         root_dir / "bin",
         root_dir / "board",
     ]
-    for board in SUPPORTED_BOARDS:
+
+    if args.board:
+        b_idx = 0;
+        for board in SUPPORTED_BOARDS:
+            if board.name == args.board:
+                boardlist = SUPPORTED_BOARDS[b_idx : b_idx + 1]
+            b_idx += 1
+    else:
+        boardlist = SUPPORTED_BOARDS
+
+    for board in boardlist:
         board_dir = root_dir / "board" / board.name
         dir_structure.append(board_dir)
         for config in SUPPORTED_CONFIGS:
@@ -768,7 +779,7 @@ def main() -> None:
     build_doc(root_dir)
 
     build_dir = Path("build")
-    for board in SUPPORTED_BOARDS:
+    for board in boardlist:
         for config in SUPPORTED_CONFIGS:
             build_sel4(sel4_dir, root_dir, build_dir, board, config)
             sel4_config = build_sel4_config_component(root_dir, build_dir, board, config)
