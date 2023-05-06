@@ -744,16 +744,26 @@ def main() -> None:
         root_dir / "board",
     ]
 
-    if args.board:
+    selected_boards = SUPPORTED_BOARDS
+
+    # If list of boards was provided
+    if args.filter_boards:
+        selected_boards = ()
+        # Convert "args" into a Dictionary, find the Key "filter-boards" in it,
+        # then convert the value into a List of board names
+        args_dict = vars(parser.parse_args())
+        if "filter_boards" in args_dict.keys():
+            board_list = args_dict["filter_boards"].split(",")
+
+        # Filter out selected boards from the complete list of supported ones
+        # and put them into a narrower Tuple
         b_idx = 0;
         for board in SUPPORTED_BOARDS:
-            if board.name == args.board:
-                boardlist = SUPPORTED_BOARDS[b_idx : b_idx + 1]
+            if board_list.count(board.name) > 0:
+                selected_boards += SUPPORTED_BOARDS[b_idx : b_idx + 1]
             b_idx += 1
-    else:
-        boardlist = SUPPORTED_BOARDS
 
-    for board in boardlist:
+    for board in selected_boards:
         board_dir = root_dir / "board" / board.name
         dir_structure.append(board_dir)
         for config in SUPPORTED_CONFIGS:
@@ -779,7 +789,7 @@ def main() -> None:
     build_doc(root_dir)
 
     build_dir = Path("build")
-    for board in boardlist:
+    for board in selected_boards:
         for config in SUPPORTED_CONFIGS:
             build_sel4(sel4_dir, root_dir, build_dir, board, config)
             sel4_config = build_sel4_config_component(root_dir, build_dir, board, config)
