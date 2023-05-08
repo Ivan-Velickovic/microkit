@@ -728,7 +728,7 @@ def build_sel4_config_component(
 def main() -> None:
     parser = ArgumentParser()
     parser.add_argument("--sel4", type=Path, required=True)
-    parser.add_argument("--board", help="Target board")
+    parser.add_argument("--filter-boards", help="List of boards to build SDK for (comma separated)")
     args = parser.parse_args()
     sel4_dir = args.sel4.expanduser()
     if not sel4_dir.exists():
