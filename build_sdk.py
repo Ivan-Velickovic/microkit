@@ -221,6 +221,19 @@ SUPPORTED_BOARDS = (
         examples = {}
     ),
     BoardInfo(
+        name="rockpro64",
+        arch=BoardArch.AARCH64,
+        gcc_flags="GCC_CPU=cortex-a53",
+        loader_link_address=0x20000000,
+        kernel_options = {
+            "KernelPlatform": "rockpro64",
+            "KernelIsMCS": True,
+            # The kernel will default to AARCH32, which is why we specify AARCH64
+            "KernelSel4Arch": "aarch64",
+        },
+        examples = {}
+    ),
+    BoardInfo(
         name="qemu_arm_virt_cortex_a72",
         arch=BoardArch.AARCH64,
         gcc_flags="GCC_CPU=cortex-a72",
