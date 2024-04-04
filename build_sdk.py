@@ -308,6 +308,20 @@ SUPPORTED_BOARDS = (
         examples = {}
     ),
     BoardInfo(
+        name="odroidc4_2_cores",
+        arch=BoardArch.AARCH64,
+        gcc_flags="GCC_CPU=cortex-a55",
+        loader_link_address=0x20000000,
+        kernel_options = {
+            "KernelPlatform": "odroidc4",
+            "KernelIsMCS": True,
+            "KernelArmVtimerUpdateVOffset": False,
+            "KernelIRQReporting": False,
+            "KernelMaxNumNodes": 2,
+        },
+        examples = {}
+    ),
+    BoardInfo(
         name="rpi3b",
         arch=BoardArch.AARCH64,
         gcc_flags="GCC_CPU=cortex-a53",
@@ -356,6 +370,21 @@ SUPPORTED_BOARDS = (
             "KernelIsMCS": True,
             "KernelArmExportPCNTUser": True,
             "KernelArmHypervisorSupport": True,
+        },
+        examples = {
+            "hello": Path("example/maaxboard/hello")
+        }
+    ),
+    BoardInfo(
+        name="maaxboard_2_cores",
+        arch=BoardArch.AARCH64,
+        gcc_flags="GCC_CPU=cortex-a53",
+        loader_link_address=0x50000000,
+        kernel_options = {
+            "KernelPlatform": "maaxboard",
+            "KernelIsMCS": True,
+            "KernelArmExportPCNTUser": True,
+            "KernelMaxNumNodes": 2,
         },
         examples = {
             "hello": Path("example/maaxboard/hello")
@@ -489,12 +518,27 @@ SUPPORTED_CONFIGS = (
         name="benchmark",
         debug=False,
         kernel_options = {
-            "KernelDebugBuild": False,
+            "KernelDebugBuild": True,
             "KernelVerificationBuild": False,
+            "KernelPrinting": True,
             "KernelBenchmarks": "track_utilisation",
             "KernelArmExportPMUUser": True,
             # Enable signal fastpath for sDDF benchmarking
             "KernelSignalFastpath": True,
+        },
+    ),
+        ConfigInfo(
+        name="profile",
+        debug=False,
+        kernel_options = {
+            "KernelDebugBuild": True,
+            "KernelVerificationBuild": False,
+            "KernelPrinting": True,
+            "KernelBenchmarks": "track_utilisation",
+            "KernelArmExportPMUUser": True,
+            # Enable signal fastpath for sDDF benchmarking
+            "KernelSignalFastpath": True,
+            "ProfilerEnable": True,
         },
     ),
 )

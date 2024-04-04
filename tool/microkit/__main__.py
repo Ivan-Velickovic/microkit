@@ -69,6 +69,7 @@ from microkit.sel4 import (
     Sel4CnodeCopy,
     Sel4UntypedRetype,
     Sel4IrqControlGetTrigger,
+    Sel4IrqControlGetTriggerCore,
     Sel4IrqHandlerSetNotification,
     Sel4SchedControlConfigureFlags,
     Sel4ArmVcpuSetTcb,
@@ -1275,14 +1276,15 @@ def build_system(
         for sysirq in pd.irqs:
             cap_address = system_cap_address_mask | cap_slot
             system_invocations.append(
-                Sel4IrqControlGetTrigger(
+                Sel4IrqControlGetTriggerCore(
                     kernel_config.arch,
                     IRQ_CONTROL_CAP_ADDRESS,
                     sysirq.irq,
                     sysirq.trigger.value,
                     root_cnode_cap,
                     cap_address,
-                    kernel_config.cap_address_bits
+                    kernel_config.cap_address_bits,
+                    pd.cpu_affinity
                 )
             )
 

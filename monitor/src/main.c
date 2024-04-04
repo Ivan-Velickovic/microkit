@@ -532,7 +532,7 @@ monitor(void)
             puts(pd_names[badge]);
             puts("\n");
         } else {
-            fail("unknown/invalid badge\n");
+            puts("unknown/invalid badge\n");
         }
 
         seL4_UserContext regs;

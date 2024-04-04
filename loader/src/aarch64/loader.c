@@ -208,7 +208,7 @@ putc(uint8_t ch)
     while ((*UART_REG(UART_STATUS) & UART_TX_FULL));
     *UART_REG(UART_WFIFO) = ch;
 }
-#elif defined(BOARD_odroidc4)
+#elif defined(BOARD_odroidc4) || defined(BOARD_odroidc4_2_cores)
 #define UART_BASE 0xff803000
 #define UART_WFIFO 0x0
 #define UART_STATUS 0xC
@@ -288,7 +288,7 @@ putc(uint8_t ch)
 
     *((volatile uint32_t *)(UART_BASE + R_UART_TX_RX_FIFO)) = ch;
 }
-#elif defined(BOARD_maaxboard)
+#elif defined(BOARD_maaxboard) || defined(BOARD_maaxboard_2_cores)
 #define UART_BASE 0x30860000
 #define STAT 0x98
 #define TRANSMIT 0x40

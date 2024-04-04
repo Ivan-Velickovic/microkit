@@ -754,22 +754,26 @@ class Sel4Label(IntEnum):
     ARMVCPUAckVPPI = 56
     # ARM IRQ
     ARMIRQIssueIRQHandlerTrigger = 57
+    ARMIRQIssueIRQHandlerTriggerCore = 58
+
     # RISC-V Page Table
-    RISCVPageTableMap = 58
-    RISCVPageTableUnmap = 59
+    RISCVPageTableMap = 59
+    RISCVPageTableUnmap = 60
     # RISC-V Page
-    RISCVPageMap = 60
-    RISCVPageUnmap = 61
-    RISCVPageGetAddress = 62
+    RISCVPageMap = 61
+    RISCVPageUnmap = 62
+    RISCVPageGetAddress = 63
     # RISC-V ASID
-    RISCVASIDControlMakePool = 63
-    RISCVASIDPoolAssign = 64
+    RISCVASIDControlMakePool = 64
+    RISCVASIDPoolAssign = 65
     # RISC-V IRQ
-    RISCVIRQIssueIRQHandlerTrigger = 65
+    RISCVIRQIssueIRQHandlerTrigger = 66
+    RISCVIRQIssueIRQHandlerTriggerCore = 67
+
     # RISC-V VCPU
-    RISCVVCPUSetTCB = 66
-    RISCVVCPUReadReg = 67
-    RISCVVCPUWriteReg = 68
+    RISCVVCPUSetTCB = 68
+    RISCVVCPUReadReg = 69
+    RISCVVCPUWriteReg = 70
 
     def get_id(self, kernel_config: KernelConfig) -> int:
         if kernel_config.arch == KernelArch.AARCH64:
@@ -793,7 +797,9 @@ class Sel4Label(IntEnum):
 # respective kernel config. This has some duplication (the first 4 invocations are always the same).
 AARCH64_LABELS = {
     # ARM IRQ
-    Sel4Label.ARMIRQIssueIRQHandlerTrigger: 52
+    Sel4Label.ARMIRQIssueIRQHandlerTrigger: 52,
+    Sel4Label.ARMIRQIssueIRQHandlerTriggerCore: 53
+
 }
 
 AARCH64_HYP_LABELS = {
@@ -804,7 +810,9 @@ AARCH64_HYP_LABELS = {
     Sel4Label.ARMVCPUWriteReg: 55,
     Sel4Label.ARMVCPUAckVPPI: 56,
     # ARM IRQ
-    Sel4Label.ARMIRQIssueIRQHandlerTrigger: 57
+    Sel4Label.ARMIRQIssueIRQHandlerTrigger: 57,
+    Sel4Label.ARMIRQIssueIRQHandlerTriggerCore: 58
+
 }
 
 RISCV_LABELS = {
@@ -820,10 +828,11 @@ RISCV_LABELS = {
     Sel4Label.RISCVASIDPoolAssign: 42,
     # RISC-V IRQ
     Sel4Label.RISCVIRQIssueIRQHandlerTrigger: 43,
+    Sel4Label.RISCVIRQIssueIRQHandlerTriggerCore: 44,
     # RISC-V VCPU
-    Sel4Label.RISCVVCPUSetTCB: 44,
-    Sel4Label.RISCVVCPUReadReg: 45,
-    Sel4Label.RISCVVCPUWriteReg: 46,
+    Sel4Label.RISCVVCPUSetTCB: 45,
+    Sel4Label.RISCVVCPUReadReg: 46,
+    Sel4Label.RISCVVCPUWriteReg: 47,
 }
 
 """
@@ -1089,7 +1098,7 @@ class Sel4AsidPoolAssign(Sel4Invocation):
 @dataclass
 class Sel4IrqControlGetTrigger(Sel4Invocation):
     _object_type = "IRQ Control"
-    _method_name = "Get"
+    _method_name = "GetTrigger"
     _extra_caps = ("dest_root", )
     irq_control: int
     irq: int
@@ -1113,6 +1122,34 @@ class Sel4IrqControlGetTrigger(Sel4Invocation):
         self.dest_index = dest_index
         self.dest_depth = dest_depth
 
+@dataclass
+class Sel4IrqControlGetTriggerCore(Sel4Invocation):
+    _object_type = "IRQ Control"
+    _method_name = "GetTriggerCore"
+    _extra_caps = ("dest_root", )
+    irq_control: int
+    irq: int
+    trigger: int
+    dest_root: int
+    dest_index: int
+    dest_depth: int
+    target: int
+
+    def __init__(self, arch: KernelArch, irq_control: int, irq: int, trigger: int, dest_root: int, dest_index: int, dest_depth: int, target: int):
+        if arch == KernelArch.AARCH64:
+            self.label = Sel4Label.ARMIRQIssueIRQHandlerTriggerCore
+        elif arch == KernelArch.RISCV64 or arch == KernelArch.RISCV32:
+            self.label = Sel4Label.RISCVIRQIssueIRQHandlerTriggerCore
+        else:
+            raise Exception(f"Unexpected kernel architecture: {arch}")
+
+        self.irq_control = irq_control
+        self.irq = irq
+        self.trigger = trigger
+        self.dest_root = dest_root
+        self.dest_index = dest_index
+        self.dest_depth = dest_depth
+        self.target = target
 
 @dataclass
 class Sel4IrqHandlerSetNotification(Sel4Invocation):
