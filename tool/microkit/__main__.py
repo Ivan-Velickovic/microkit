@@ -305,7 +305,7 @@ def phys_mem_regions_from_elf(elf: ElfFile, alignment: int) -> List[MemoryRegion
             round_down(segment.phys_addr, alignment),
             round_up(segment.phys_addr + len(segment.data), alignment)
         )
-        for segment in elf.segments
+        for segment in elf.segments if segment.loadable
     ]
 
 
@@ -333,7 +333,7 @@ def virt_mem_regions_from_elf(elf: ElfFile, alignment: int) -> List[MemoryRegion
             round_down(segment.virt_addr, alignment),
             round_up(segment.virt_addr + len(segment.data), alignment)
         )
-        for segment in elf.segments
+        for segment in elf.segments if segment.loadable
     ]
 
 
