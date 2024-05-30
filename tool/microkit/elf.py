@@ -299,6 +299,10 @@ class ElfFile:
                 f.seek(hdr.phoff + idx * hdr.phentsize)
                 phent_raw = f.read(hdr.phentsize)
                 phent = ElfProgramHeader(**dict(zip(ph_fields, ph_fmt.unpack_from(phent_raw))))
+
+                if phent.type_ != SegmentType.PT_LOAD:
+                    continue
+
                 f.seek(phent.offset)
                 data = f.read(phent.filesz)
                 zeros = bytes(phent.memsz - phent.filesz)
