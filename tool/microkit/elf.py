@@ -300,12 +300,14 @@ class ElfFile:
                 phent_raw = f.read(hdr.phentsize)
                 phent = ElfProgramHeader(**dict(zip(ph_fields, ph_fmt.unpack_from(phent_raw))))
 
-                if phent.type_ != SegmentType.PT_LOAD:
-                    continue
-
                 f.seek(phent.offset)
                 data = f.read(phent.filesz)
-                zeros = bytes(phent.memsz - phent.filesz)
+
+                if phent.memsz - phent.filesz < 0:
+                    zeros = bytes(0)
+                else:
+                    zeros = bytes(phent.memsz - phent.filesz)
+
                 elf.segments.append(ElfSegment(phent.paddr, phent.vaddr, bytearray(data + zeros), phent.type_ == 1, SegmentAttributes(phent.flags)))
 
 
