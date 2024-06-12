@@ -69,6 +69,7 @@ from microkit.sel4 import (
     Sel4CnodeCopy,
     Sel4UntypedRetype,
     Sel4IrqControlGetTrigger,
+    Sel4IrqControlGetTriggerCore,
     Sel4IrqHandlerSetNotification,
     Sel4SchedControlConfigureFlags,
     Sel4ArmVcpuSetTcb,
@@ -1274,17 +1275,32 @@ def build_system(
     for pd in system.protection_domains:
         for sysirq in pd.irqs:
             cap_address = system_cap_address_mask | cap_slot
-            system_invocations.append(
-                Sel4IrqControlGetTrigger(
-                    kernel_config.arch,
-                    IRQ_CONTROL_CAP_ADDRESS,
-                    sysirq.irq,
-                    sysirq.trigger.value,
-                    root_cnode_cap,
-                    cap_address,
-                    kernel_config.cap_address_bits
+            # If we are in UP mode, use GetTrigger, in SMP use GetTriggerCore
+            if kernel_config.num_cpus > 1:
+                system_invocations.append(
+                    Sel4IrqControlGetTriggerCore(
+                        kernel_config.arch,
+                        IRQ_CONTROL_CAP_ADDRESS,
+                        sysirq.irq,
+                        sysirq.trigger.value,
+                        root_cnode_cap,
+                        cap_address,
+                        kernel_config.cap_address_bits,
+                        pd.cpu_affinity
+                    )
                 )
-            )
+            else:
+                system_invocations.append(
+                    Sel4IrqControlGetTrigger(
+                        kernel_config.arch,
+                        IRQ_CONTROL_CAP_ADDRESS,
+                        sysirq.irq,
+                        sysirq.trigger.value,
+                        root_cnode_cap,
+                        cap_address,
+                        kernel_config.cap_address_bits,
+                    )
+                )
 
             cap_slot += 1
             cap_address_names[cap_address] = f"IRQ Handler: irq={sysirq.irq:d}"

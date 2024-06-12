@@ -74,6 +74,7 @@ class SysIrq:
     irq: int
     id_: int
     trigger: str
+    target: int
 
 
 @dataclass(frozen=True, eq=True)
@@ -217,9 +218,9 @@ class SystemDescription:
         all_irqs = set()
         for pd in self.protection_domains:
             for sysirq in pd.irqs:
-                if sysirq.irq in all_irqs:
+                if (sysirq.irq, sysirq.target) in all_irqs:
                     raise UserError(f"duplicate irq: {sysirq.irq} in protection domain: '{pd.name}' @ {pd.element._loc_str}")  # type: ignore
-                all_irqs.add(sysirq.irq)
+                all_irqs.add((sysirq.irq, sysirq.target))
 
         # Ensure no duplicate channel identifiers
         ch_ids: Dict[str, Set[int]] = {pd_name: set() for pd_name in self.pd_by_name}
@@ -362,7 +363,8 @@ def xml2pd(pd_xml: ET.Element, plat_desc: PlatformDescription, is_child: bool=Fa
                     trigger = Sel4ArmIrqTrigger.Edge
                 else:
                     raise UserError(f"Invalid IRQ trigger '{trigger_str}': {child._loc_str}")
-                irqs.append(SysIrq(irq, irq_id, trigger))
+                target = cpu
+                irqs.append(SysIrq(irq, irq_id, trigger, target))
             elif child.tag == "setvar":
                 _check_attrs(child, ("symbol", "region_paddr"))
                 symbol = checked_lookup(child, "symbol")
