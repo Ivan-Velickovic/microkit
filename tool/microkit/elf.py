@@ -7,9 +7,11 @@ from pathlib import Path
 from struct import Struct, pack
 from enum import IntEnum, IntFlag
 from dataclasses import dataclass
+from io import BytesIO
 
 from typing import List, Literal, Optional, Tuple
 
+from .util import round_up
 
 class ObjectFileType(IntEnum):
     ET_NONE = 0
@@ -55,6 +57,8 @@ class MachineType(IntEnum):
     # This is all we support for now, and I don't
     # feel like typing them all out!
     # These values are from Linux source in include/uapi/linux/elf-em.h
+    EM_386 = 3
+    EM_X86_64 = 62
     EM_AARCH64 = 183
     EM_RISCV = 243
 
@@ -109,6 +113,16 @@ ELF_SECTION_HEADER32_FIELDS = (
     "info",
     "addralign",
     "entsize",
+)
+
+ELF_SYMBOL32 = Struct("<IIIBBH")
+ELF_SYMBOL32_FIELDS = (
+    "name",
+    "value",
+    "size",
+    "info",
+    "other",
+    "shndx",
 )
 
 ELF_HEADER64 = Struct("<BBBBxxxxxxxHHIQQQIHHHHHH")
@@ -276,6 +290,8 @@ class ElfFile:
                 ph_fields = ELF_PROGRAM_HEADER32_FIELDS
                 sh_fmt = ELF_SECTION_HEADER32
                 sh_fields = ELF_SECTION_HEADER32_FIELDS
+                sym_fmt = ELF_SYMBOL32
+                sym_fields = ELF_SYMBOL32_FIELDS
                 elf = cls(word_size=32)
             elif class_ == 2:
                 hdr_fmt = ELF_HEADER64
@@ -343,58 +359,83 @@ class ElfFile:
 
         return elf
 
-    def write(self, path: Path, machine: MachineType) -> None:
+    def iowrite(self, f: BytesIO, machine: MachineType) -> None:
         """Note: This only supports writing out of program headers
         and segments. It does *not* support writing out sections
         at this point in time.
         """
-        with path.open("wb") as f:
+        if self.word_size == 64:
             ehsize = ELF_HEADER64.size + 5
             phentsize = ELF_PROGRAM_HEADER64.size
-            header = ElfHeader(
-                ident_data=DataEncoding.ELFDATA2LSB,
-                ident_version=ElfVersion.EV_CURRENT,
-                ident_osabi=OperatingSystemAbi.ELFOSABI_STANDALINE,
-                ident_abiversion=0,
-                type_ = ObjectFileType.ET_EXEC,
-                machine=machine,
-                version=ElfVersion.EV_CURRENT,
-                entry=self.entry,
-                phoff=ehsize,
-                shoff=0,
-                flags=0,
-                ehsize=ehsize,
-                phentsize=phentsize,
-                phnum=len(self.segments),
-                shentsize=0,
-                shnum=0,
-                shstrndx=0,
-            )
+            shentsize = ELF_SECTION_HEADER64.size
+        else:
+            ehsize = ELF_HEADER32.size + 5
+            phentsize = ELF_PROGRAM_HEADER32.size
+            shentsize = ELF_SECTION_HEADER32.size
+        phoff = round_up(ehsize, 8)
+        shoff = phoff + len(self.segments) * phentsize + sum(len(s.data) for s in self.segments)
+        header = ElfHeader(
+            ident_data=DataEncoding.ELFDATA2LSB,
+            ident_version=ElfVersion.EV_CURRENT,
+            ident_osabi=OperatingSystemAbi.ELFOSABI_STANDALINE,
+            ident_abiversion=0,
+            type_ = ObjectFileType.ET_EXEC,
+            machine=machine,
+            version=ElfVersion.EV_CURRENT,
+            entry=self.entry,
+            phoff=phoff,
+            shoff=shoff,
+            flags=0,
+            ehsize=ehsize,
+            phentsize=phentsize,
+            phnum=len(self.segments),
+            shentsize=shentsize,
+            shnum=1,
+            shstrndx=0,
+        )
+        if self.word_size == 64:
             header_bytes = ELF_HEADER64.pack(*(getattr(header, field) for field in ELF_HEADER64_FIELDS))
             f.write(ELF_MAGIC)
             f.write(pack("<B", ObjectFileClass.ELFCLASS64))
             f.write(header_bytes)
+        else:
+            header_bytes = ELF_HEADER32.pack(*(getattr(header, field) for field in ELF_HEADER32_FIELDS))
+            f.write(ELF_MAGIC)
+            f.write(pack("<B", ObjectFileClass.ELFCLASS32))
+            f.write(header_bytes)
 
-            data_offset = ehsize + len(self.segments) * phentsize
-            for segment in self.segments:
-                pheader = ElfProgramHeader(
-                    type_ = SegmentType.PT_LOAD,
-                    offset = data_offset,
-                    vaddr = segment.virt_addr,
-                    paddr = segment.phys_addr,
-                    filesz = segment.mem_size,
-                    memsz = segment.mem_size,
-                    # FIXME: Need to do something better with permissions in the future!
-                    flags = SegmentAttributes.PF_R | SegmentAttributes.PF_W | SegmentAttributes.PF_X,
-                    align = 1,
-                )
+        # Insert padding bytes for the program header to be 64-bit
+        # aligned.
+        f.write(b"\x00" * (phoff - ehsize))
+
+        data_offset = phoff + len(self.segments) * phentsize
+        for segment in self.segments:
+            pheader = ElfProgramHeader(
+                type_ = SegmentType.PT_LOAD,
+                offset = data_offset,
+                vaddr = segment.virt_addr,
+                paddr = segment.phys_addr,
+                filesz = segment.mem_size,
+                memsz = segment.mem_size,
+                # FIXME: Need to do something better with permissions in the future!
+                flags = SegmentAttributes.PF_R | SegmentAttributes.PF_W | SegmentAttributes.PF_X,
+                align = 0x1000,
+            )
+            if self.word_size == 64:
                 pheader_bytes = ELF_PROGRAM_HEADER64.pack(*(getattr(pheader, field) for field in ELF_PROGRAM_HEADER64_FIELDS))
-                f.write(pheader_bytes)
-                data_offset += len(segment.data)
+            else:
+                pheader_bytes = ELF_PROGRAM_HEADER32.pack(*(getattr(pheader, field) for field in ELF_PROGRAM_HEADER32_FIELDS))
+            f.write(pheader_bytes)
+            data_offset += len(segment.data)
+        for segment in self.segments:
+            f.write(segment.data)
 
-            for segment in self.segments:
-                f.write(segment.data)
+        # Add an inactive section header to pacify grub.
+        f.write(b"\x00" * shentsize)
 
+    def write(self, path: Path, machine: MachineType) -> None:
+        with path.open("wb") as f:
+            self.iowrite(f, machine)
 
     def add_segment(self, segment: ElfSegment) -> None:
         # TODO: Check that the segment doesn't overlap any existing

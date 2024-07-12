@@ -7,10 +7,6 @@ ifeq ($(strip $(BUILD_DIR)),)
 $(error BUILD_DIR must be specified)
 endif
 
-# ifeq ($(strip $(GCC_CPU)),)
-# $(error GCC_CPU must be specified)
-# endif
-
 ifeq ($(strip $(BOARD)),)
 $(error BOARD must be specified)
 endif
@@ -23,25 +19,24 @@ ifeq ($(strip $(ARCH)),)
 $(error ARCH must be specified)
 endif
 
-# ifeq ($(strip $(TOOLCHAIN)),)
-# $(error TOOLCHAIN must be specified)
-# endif
+ifeq ($(ARCH),aarch64)
+ifeq ($(strip $(GCC_CPU)),)
+$(error GCC_CPU must be specified for ARCH=$(ARCH))
+endif
+endif
+
+ifeq ($(strip $(TOOLCHAIN)),)
+$(error TOOLCHAIN must be specified)
+endif
 
 ifeq ($(strip $(NUM_CPUS)),)
 $(error NUM_CPUS must be specified)
 endif
 
-ifeq ($(ARCH),x86_64)
-	GCC := gcc
-	AS := as
-	CPP := cpp
-	ld := ld
-else
-	GCC := $(TOOLCHAIN)gcc
-	AS := $(TOOLCHAIN)as
-	CPP := $(TOOLCHAIN)cpp
-	LD := $(TOOLCHAIN)ld
-endif
+GCC := $(TOOLCHAIN)gcc
+AS := $(TOOLCHAIN)as
+CPP := $(TOOLCHAIN)cpp
+LD := $(TOOLCHAIN)ld
 
 ifeq ($(ARCH),aarch64)
 	# FIXME @ivanv: investigate why having -O3 causes QEMU ARM virt to not be able to boot.
@@ -62,11 +57,16 @@ else ifeq ($(ARCH),riscv32)
 	ASM_FLAGS_ARCH := -march=$(MARCH) -mabi=$(MABI)
 	LD_FLAGS_ARCH := -m elf32lriscv
 else ifeq ($(ARCH),x86_64)
-	C_FLAGS := -std=gnu11 -g -O3 -nostdlib -ffreestanding -DBOARD_$(BOARD) -DARCH_x86_64 -Wall -Werror
-	ASM_CPP_FLAGS := -x assembler-with-cpp -c -g -DBOARD_$(BOARD)
-	ASM_FLAGS := -g
+	CONFIG_CFLAGS = \
+		-DCONFIG_MULTIBOOT_GRAPHICS_MODE_NONE \
+		-DCONFIG_MULTIBOOT1_HEADER \
+		-DCONFIG_MULTIBOOT2_HEADER
+	C_FLAGS_ARCH := -O3 -m32 $(CONFIG_CFLAGS)
+	ASM_CPP_FLAGS_ARCH := -m32 $(CONFIG_CFLAGS) -D__ASM__HEADER__
+	ASM_FLAGS_ARCH := --32
+	LD_FLAGS_ARCH := -m elf_i386
 else
-	$(error ARCH must be aarch64 or riscv64 or riscv32)
+	$(error ARCH must be aarch64 or riscv64 or riscv32 or x86_64)
 endif
 
 C_FLAGS := -std=gnu11 -g -nostdlib -ffreestanding -DBOARD_$(BOARD) -DNUM_CPUS=$(NUM_CPUS) -DARCH_$(ARCH) -Wall -Werror $(C_FLAGS_ARCH)
@@ -87,8 +87,11 @@ else ifeq ($(ARCH),riscv64)
 else ifeq ($(ARCH),riscv32)
 	OBJECTS := loader.o crt0.o
 	ARCH_DIR := riscv
+else ifeq ($(ARCH),x86_64)
+	OBJECTS := loader.o crt0.o multiboot.o
+	ARCH_DIR := x86_64
 else
-	$(error ARCH must be aarch64 or riscv64 or riscv32)
+	$(error ARCH must be aarch64 or riscv64 or riscv32 or x86_64)
 endif
 
 $(BUILD_DIR)/%.o : src/$(ARCH_DIR)/%.S

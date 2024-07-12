@@ -86,6 +86,17 @@ class Sel4Object(IntEnum):
     Vspace = 11
     Vcpu = 12
 
+    # These names are specific to x86, the numbers are meaningless and
+    # overriden below via X86_64_OBJECTS.
+    PageDirectory = 13
+    PdPt = 14
+    Pml4 = 15
+    IOPageTable = 16
+    EptPml4 = 17
+    EptPdPt = 18
+    EptPageDirectory = 19
+    EptPageTable = 20
+
     def get_id(self, kernel_config: KernelConfig) -> int:
         if kernel_config.arch == KernelArch.AARCH64:
             if kernel_config.hyp_mode and kernel_config.arm_pa_size_bits == 40 and self in AARCH64_HYP_OBJECTS:
@@ -115,6 +126,8 @@ class Sel4Object(IntEnum):
             return AARCH64_HYP_OBJECT_SIZES[self]
         elif kernel_config.arch == KernelArch.RISCV64 and kernel_config.hyp_mode and self in RISCV64_HYP_OBJECT_SIZES:
             return RISCV64_HYP_OBJECT_SIZES[self]
+        elif kernel_config.arch == KernelArch.X86_64 and self in X86_64_OBJECT_SIZES:
+            return X86_64_OBJECT_SIZES[self]
         elif self in FIXED_OBJECT_SIZES:
             return FIXED_OBJECT_SIZES[self]
         else:
@@ -155,16 +168,23 @@ RISCV64_HYP_OBJECTS = {
 }
 
 # @ivanv: Double check these, not sure about the first two and the last one.
-# X86_64_OBJECTS = {
-#     Sel4Object.PdPt: 7, # ?? seL4_X64_PML4Object
-#     Sel4Object.Pml4: 8, # seL4_X64_PML4Object
-#     Sel4Object.HugePage: 9,
-#     Sel4Object.SmallPage: 10,
-#     Sel4Object.LargePage: 11,
-#     Sel4Object.PageTable: 12,
-#     Sel4Object.PageDirectory: 13,
-#     Sel4Object.IOPageTable: 14 # seL4_X86_IOPageTableObject, not sure if necessary
-# }
+X86_64_OBJECTS = {
+    Sel4Object.PdPt: 7,              # seL4_X86_PDPTObject
+    Sel4Object.Pml4: 8,              # seL4_X64_PML4Object
+    Sel4Object.HugePage: 9,          # seL4_X64_HugePageObject
+    Sel4Object.SmallPage: 10,        # seL4_X86_4K
+    Sel4Object.LargePage: 11,        # seL4_X86_LargePageObject
+    Sel4Object.PageTable: 12,        # seL4_X86_PageTableObject
+    Sel4Object.PageDirectory: 13,    # seL4_X86_PageDirectoryObject
+    Sel4Object.IOPageTable: 14,      # seL4_X86_IOPageTableObject
+    Sel4Object.Vcpu: 15,             # seL4_X86_VCPUObject
+    Sel4Object.EptPml4: 16,          # seL4_X86_EPTPML4Object
+    Sel4Object.EptPdPt: 17,          # seL4_X86_EPTPDPTObject
+    Sel4Object.EptPageDirectory: 18, # seL4_X86_EPTPDObject
+    Sel4Object.EptPageTable: 19,     # seL4_X86_EPTPTObject
+    # A Vspace on X86-64 is represented by a PML4
+    Sel4Object.Vspace: 8,
+}
 
 SEL4_OBJECT_TYPE_NAMES = {
     Sel4Object.Untyped: "SEL4_UNTYPED_OBJECT",
@@ -178,6 +198,8 @@ SEL4_OBJECT_TYPE_NAMES = {
     Sel4Object.LargePage: "SEL4_LARGE_PAGE_OBJECT",
     Sel4Object.HugePage: "SEL4_HUGE_PAGE_SIZE",
     Sel4Object.PageTable: "SEL4_PAGE_TABLE_OBJECT",
+    Sel4Object.PageDirectory: "SEL4_PAGE_DIRECTORY_OBJECT",
+    Sel4Object.PdPt: "SEL4_PAGE_DIRECTORY_POINTER_TABLE_OBJECT",
     Sel4Object.Vspace: "SEL4_VSPACE_OBJECT",
     Sel4Object.Vcpu: "SEL4_VCPU_OBJECT",
 }
@@ -206,6 +228,18 @@ AARCH64_HYP_OBJECT_SIZES = {
 RISCV64_HYP_OBJECT_SIZES = {
     Sel4Object.Vcpu: 1 << 10,
     Sel4Object.Vspace: 1 << 14,
+}
+
+X86_64_OBJECT_SIZES = {
+    Sel4Object.PageDirectory: 1 << 12,
+    Sel4Object.PdPt: 1 << 12,
+    Sel4Object.Pml4: 1 << 12,
+    Sel4Object.IOPageTable: 1 << 12,
+    Sel4Object.Vcpu: 1 << 14,
+    Sel4Object.EptPml4: 1 << 12,
+    Sel4Object.EptPdPt: 1 << 12,
+    Sel4Object.EptPageDirectory: 1 << 12,
+    Sel4Object.EptPageTable: 1 << 12,
 }
 
 VARIABLE_SIZE_OBJECTS = {
@@ -257,11 +291,34 @@ SMMU_CB_CONTROL_CAP_ADDRESS = 13
 INIT_THREAD_SC_CAP_ADDRESS = 14
 SMC_CAP_ADDRESS = 15
 
+N_VTD_CONTEXTS = 256
+VTD_PT_INDEX_BITS = 9
+
 def _get_n_paging(region: MemoryRegion, bits: int) -> int:
     start = round_down(region.base, 1 << bits)
     end = round_up(region.end, 1 << bits)
     return (end - start) // (1 << bits)
 
+def _vtd_get_n_paging(x86_machine) -> int:
+    size = 0
+    size += 1                         # one for the root table
+    size += N_VTD_CONTEXTS            # one for each context
+    size += len(x86_machine["rmrrs"]) # one for each device
+
+    if len(x86_machine["rmrrs"]) == 0:
+        return size
+
+    # @mat: there's more stuff in seL4's vtd_get_n_paging() to be duplicated here.
+
+    for i in range(x86_machine["bootinfo"]["numIOPTLevels"] - 1, 0, -1):
+        nbits = VTD_PT_INDEX_BITS * i + 12
+        if nbits >= 32:
+            size += 1
+        else:
+            for rmrr in x86_machine["rmrrs"]:
+                region = MemoryRegion(base=rmrr["base"], end=rmrr["limit"])
+                size += _get_n_paging(region, 32 - nbits)
+    return size
 
 def _get_arch_n_paging(kernel_config: KernelConfig, region: MemoryRegion) -> int:
     if kernel_config.arch == KernelArch.AARCH64:
@@ -295,6 +352,17 @@ def _get_arch_n_paging(kernel_config: KernelConfig, region: MemoryRegion) -> int
 
         return (
             _get_n_paging(region, PUD_INDEX_OFFSET) +
+            _get_n_paging(region, PD_INDEX_OFFSET)
+        )
+    elif kernel_config.arch == KernelArch.X86_64:
+        PT_INDEX_OFFSET   = 12
+        PD_INDEX_OFFSET   = (PT_INDEX_OFFSET   + 9)
+        PDPT_INDEX_OFFSET = (PD_INDEX_OFFSET   + 9)
+        PML4_INDEX_OFFSET = (PDPT_INDEX_OFFSET + 9)
+
+        return (
+            _get_n_paging(region, PML4_INDEX_OFFSET) +
+            _get_n_paging(region, PDPT_INDEX_OFFSET) +
             _get_n_paging(region, PD_INDEX_OFFSET)
         )
     else:
@@ -770,6 +838,59 @@ class Sel4Label(IntEnum):
     RISCVVCPUSetTCB = 66
     RISCVVCPUReadReg = 67
     RISCVVCPUWriteReg = 68
+    # X86 PDPT
+    X86PDPTMap = 69
+    X86PDPTUnmap = 70
+    # X86 Page Directory
+    X86PageDirectoryMap = 71
+    X86PageDirectoryUnmap = 72
+    X86PageDirectoryGetStatusBits = 73
+    # X86 Page Table
+    X86PageTableMap = 74
+    X86PageTableUnmap = 75
+    # X86 IO Page
+    X86IOPageTableMap = 76
+    X86IOPageTableUnmap = 77
+    # X86 Page
+    X86PageMap = 78
+    X86PageUnmap = 79
+    X86PageMapIO = 80
+    X86PageGetAddress = 81
+    X86PageMapEPT = 82
+    # X86 ASID
+    X86ASIDControlMakePool = 83
+    # X86 ASID Pool
+    X86ASIDPoolAssign = 84
+    # X86 IO Port Control
+    X86IOPortControlIssue = 85
+    # X86 IO PORT
+    X86IOPortIn8 = 86
+    X86IOPortIn16 = 87
+    X86IOPortIn32 = 88
+    X86IOPortOut8 = 89
+    X86IOPortOut16 = 90
+    X86IOPortOut32 = 91
+    # X86 IRQ
+    X86IRQIssueIRQHandlerIOAPIC = 92
+    X86IRQIssueIRQHandlerMSI = 93
+    # X86 TCB
+    TCBSetEPTRoot = 94
+    # X86 VCPU
+    X86VCPUSetTCB = 95
+    X86VCPUReadVMCS = 96
+    X86VCPUWriteVMCS = 97
+    X86VCPUEnableIOPort = 98
+    X86VCPUDisableIOPort = 99
+    X86VCPUWriteRegisters = 100
+    # X86 EPTPDPT
+    X86EPTPDPTMap = 101
+    X86EPTPDPTUnmap = 102
+    # X86 EPTPD
+    X86EPTPDMap = 103
+    X86EPTPDUnmap = 104
+    # X86 EPTPT
+    X86EPTPTMap = 105
+    X86EPTPTUnmap = 106
 
     def get_id(self, kernel_config: KernelConfig) -> int:
         if kernel_config.arch == KernelArch.AARCH64:
@@ -782,6 +903,11 @@ class Sel4Label(IntEnum):
         elif kernel_config.arch == KernelArch.RISCV64:
             if self in RISCV_LABELS:
                 return RISCV_LABELS[self]
+            else:
+                return self
+        elif kernel_config.arch == KernelArch.X86_64:
+            if self in X86_64_LABELS:
+                return X86_64_LABELS[self]
             else:
                 return self
         else:
@@ -826,35 +952,60 @@ RISCV_LABELS = {
     Sel4Label.RISCVVCPUWriteReg: 46,
 }
 
-"""
-# @ivanv: Looks like x86 messes everything up since it has
-# other TCB invocations...
-class Sel4LabelX86(IntEnum):
-    X86PDPTMap
-    X86PDPTUnmap
-    X86PageDirectoryMap
-    X86PageDirectoryUnmap
-    X86PageTableMap
-    X86PageTableUnmap
-    X86IOPageTableMap
-    X86IOPageTableUnmap
-    X86PageMap
-    X86PageUnmap
-    X86PageMapIO
-    X86PageGetAddress
-    X86ASIDControlMakePool
-    X86ASIDPoolAssign
-    X86IOPortControlIssue
-    X86IOPortIn8
-    X86IOPortIn16
-    X86IOPortIn32
-    X86IOPortOut8
-    X86IOPortOut16
-    X86IOPortOut32
-    X86IRQIssueIRQHandlerIOAPIC
-    X86IRQIssueIRQHandlerMSI
-"""
-
+X86_64_LABELS = {
+    # X86 PDPT
+    Sel4Label.X86PDPTMap: 36,
+    Sel4Label.X86PDPTUnmap: 37,
+    # X86 Page Directory
+    Sel4Label.X86PageDirectoryMap: 38,
+    Sel4Label.X86PageDirectoryUnmap: 39,
+    # X86 Page Table
+    Sel4Label.X86PageTableMap: 40,
+    Sel4Label.X86PageTableUnmap: 41,
+    # X86 IO Page
+    Sel4Label.X86IOPageTableMap: 42,
+    Sel4Label.X86IOPageTableUnmap: 43,
+    # X86 Page
+    Sel4Label.X86PageMap: 44,
+    Sel4Label.X86PageUnmap: 45,
+    Sel4Label.X86PageMapIO: 46,
+    Sel4Label.X86PageGetAddress: 47,
+    Sel4Label.X86PageMapEPT: 48,
+    # X86 ASID
+    Sel4Label.X86ASIDControlMakePool: 49,
+    # X86 ASID Pool
+    Sel4Label.X86ASIDPoolAssign: 50,
+    # X86 IO Port Control
+    Sel4Label.X86IOPortControlIssue: 51,
+    # X86 IO PORT
+    Sel4Label.X86IOPortIn8: 52,
+    Sel4Label.X86IOPortIn16: 53,
+    Sel4Label.X86IOPortIn32: 54,
+    Sel4Label.X86IOPortOut8: 55,
+    Sel4Label.X86IOPortOut16: 56,
+    Sel4Label.X86IOPortOut32: 57,
+    # X86 IRQ
+    Sel4Label.X86IRQIssueIRQHandlerIOAPIC: 58,
+    Sel4Label.X86IRQIssueIRQHandlerMSI: 59,
+    # X86 TCB
+    Sel4Label.TCBSetEPTRoot: 60,
+    # X86 VCPU
+    Sel4Label.X86VCPUSetTCB: 61,
+    Sel4Label.X86VCPUReadVMCS: 62,
+    Sel4Label.X86VCPUWriteVMCS: 63,
+    Sel4Label.X86VCPUEnableIOPort: 64,
+    Sel4Label.X86VCPUDisableIOPort: 65,
+    Sel4Label.X86VCPUWriteRegisters: 66,
+    # X86 EPTPDPT
+    Sel4Label.X86EPTPDPTMap: 67,
+    Sel4Label.X86EPTPDPTUnmap: 68,
+    # X86 EPTPD
+    Sel4Label.X86EPTPDMap: 69,
+    Sel4Label.X86EPTPDUnmap: 70,
+    # X86 EPTPT
+    Sel4Label.X86EPTPTMap: 71,
+    Sel4Label.X86EPTPTUnmap: 72,
+}
 
 ### Invocations
 
@@ -1078,7 +1229,7 @@ class Sel4AsidPoolAssign(Sel4Invocation):
         elif arch == KernelArch.RISCV64:
             self.label = Sel4Label.RISCVASIDPoolAssign
         elif arch == KernelArch.X86_64:
-            self.label = Sel4LabelX86.X86ASIDPoolAssign
+            self.label = Sel4Label.X86ASIDPoolAssign
         else:
             raise Exception(f"Unexpected kernel architecture: {arch}")
 
@@ -1147,6 +1298,38 @@ class Sel4RISCVPageTableMap(Sel4Invocation):
     vaddr: int
     attr: int
 
+@dataclass
+class Sel4X86PDPTMap(Sel4Invocation):
+    _object_type = "Page Directory Pointer Table"
+    _method_name = "Map"
+    _extra_caps = ("vspace", )
+    label = Sel4Label.X86PDPTMap
+    pdpt: int
+    vspace: int
+    vaddr: int
+    attr: int
+
+@dataclass
+class Sel4X86PageDirectoryMap(Sel4Invocation):
+    _object_type = "Page Directory"
+    _method_name = "Map"
+    _extra_caps = ("vspace", )
+    label = Sel4Label.X86PageDirectoryMap
+    page_directory: int
+    vspace: int
+    vaddr: int
+    attr: int
+
+@dataclass
+class Sel4X86PageTableMap(Sel4Invocation):
+    _object_type = "Page Table"
+    _method_name = "Map"
+    _extra_caps = ("vspace", )
+    label = Sel4Label.X86PageTableMap
+    page_table: int
+    vspace: int
+    vaddr: int
+    attr: int
 
 @dataclass
 class Sel4PageMap(Sel4Invocation):
@@ -1308,14 +1491,15 @@ def _kernel_self_mem(kernel_elf: ElfFile) -> Tuple[int, int]:
     """Return the physical memory range used by the kernel itself."""
     base = kernel_elf.segments[0].phys_addr
     ki_end_v, _= kernel_elf.find_symbol("ki_end")
-    ki_end_p = ki_end_v - kernel_elf.segments[0].virt_addr + base
+    v_p_offset = kernel_elf.segments[-1].virt_addr - kernel_elf.segments[-1].phys_addr
+    ki_end_p = ki_end_v - v_p_offset
     return (base, ki_end_p)
-
 
 def _kernel_boot_mem(kernel_elf: ElfFile) -> MemoryRegion:
     base = kernel_elf.segments[0].phys_addr
     ki_boot_end_v, _ = kernel_elf.find_symbol("ki_boot_end")
-    ki_boot_end_p = ki_boot_end_v - kernel_elf.segments[0].virt_addr + base
+    v_p_offset = kernel_elf.segments[-1].virt_addr - kernel_elf.segments[-1].phys_addr
+    ki_boot_end_p = ki_boot_end_v - v_p_offset
     return MemoryRegion(base, ki_boot_end_p)
 
 
@@ -1350,13 +1534,16 @@ def calculate_kernel_virtual_base(kernel_config: KernelConfig) -> int:
             return 2 ** 64 - 2 ** 39
         else:
             raise Exception("Unsupported number of RISC-V page table levels")
+    elif kernel_config.arch == KernelArch.X86_64:
+        return 2 ** 64 - 2 ** 39
     else:
         raise Exception(f"Unexpected kernel architecture: {kernel_config.arch}")
 
 
 def _kernel_partial_boot(
         kernel_config: KernelConfig,
-        kernel_elf: ElfFile) -> _KernelPartialBootInfo:
+        kernel_elf: ElfFile,
+        x86_machine) -> _KernelPartialBootInfo:
     """Emulate what happens during a kernel boot, up to the point
     where the reserved region is allocated.
 
@@ -1380,20 +1567,40 @@ def _kernel_partial_boot(
         device_size = 1 << 21
     elif kernel_config.arch == KernelArch.AARCH64:
         device_size = 1 << 12
+    elif kernel_config.arch == KernelArch.X86_64:
+        device_size = 1 << 12
     else:
         raise Exception(f"Unexpected kernel architecture {config.arch}")
 
-    for paddr in _kernel_device_addrs(kernel_config.arch, kernel_elf):
-        device_memory.remove_region(paddr, paddr + device_size)
+    if kernel_config.arch == KernelArch.X86_64:
+        # On x86 the kernel devices are detected at runtime. The user
+        # is expected to collect the data from a live machine and pass
+        # it to us via --x86-machine.
+        for kdev in x86_machine["kdevs"]:
+            device_memory.remove_region(kdev["base"], kdev["base"] + kdev["size"])
+    else:
+        for paddr in _kernel_device_addrs(kernel_config.arch, kernel_elf):
+            device_memory.remove_region(paddr, paddr + device_size)
 
     # Remove all the actual physical memory from the device regions
-    # but add it all to the actual normal memory regions
-    for start, end in _kernel_phys_mem(kernel_elf):
-        device_memory.remove_region(start, end)
-        normal_memory.insert_region(start, end)
+    # but add it all to the actual normal memory regions. On x86 the
+    # physical memory is detected at runtime and passed via the
+    # machine configuration file.
+    if kernel_config.arch == KernelArch.X86_64:
+        for mr in x86_machine["memory"]:
+            device_memory.remove_region(mr["base"], mr["base"] + mr["size"])
+            normal_memory.insert_region(mr["base"], mr["base"] + mr["size"])
+    else:
+        for start, end in _kernel_phys_mem(kernel_elf):
+            device_memory.remove_region(start, end)
+            normal_memory.insert_region(start, end)
 
     # Remove the kernel image itself
     normal_memory.remove_region(*_kernel_self_mem(kernel_elf))
+
+    # Remove the MSI region on x86_64
+    if kernel_config.arch == KernelArch.X86_64:
+        device_memory.remove_region(0xfffffff8, 0x100000000)
 
     # but get the boot region, we'll add that back later
     # FIXME: Why calcaultae it now if we add it back later?
@@ -1405,13 +1612,14 @@ def _kernel_partial_boot(
 def emulate_kernel_boot_partial(
         kernel_config: KernelConfig,
         kernel_elf: ElfFile,
+        x86_machine,
     ) -> Tuple[DisjointMemoryRegion, MemoryRegion]:
     """Return the memory available after a 'partial' boot emulation.
 
     This allows the caller to allocate a reserved memory region at an
     appropriate location.
     """
-    partial_info = _kernel_partial_boot(kernel_config, kernel_elf)
+    partial_info = _kernel_partial_boot(kernel_config, kernel_elf, x86_machine)
     return partial_info.normal_memory, partial_info.boot_region
 
 
@@ -1420,12 +1628,14 @@ def emulate_kernel_boot(
         kernel_elf: ElfFile,
         initial_task_phys_region: MemoryRegion,
         initial_task_virt_region: MemoryRegion,
-        reserved_region: MemoryRegion) -> KernelBootInfo:
+        reserved_region: MemoryRegion,
+        x86_machine,
+    ) -> KernelBootInfo:
     """Emulate what happens during a kernel boot, generating a
     representation of the BootInfo struct."""
     # And the the reserved region
     assert initial_task_phys_region.size == initial_task_virt_region.size
-    partial_info = _kernel_partial_boot(kernel_config, kernel_elf)
+    partial_info = _kernel_partial_boot(kernel_config, kernel_elf, x86_machine)
     normal_memory = partial_info.normal_memory
     device_memory = partial_info.device_memory
     boot_region = partial_info.boot_region
@@ -1434,7 +1644,7 @@ def emulate_kernel_boot(
     normal_memory.remove_region(reserved_region.base, reserved_region.end)
 
     # Now, the tricky part! determine which memory is used for the initial task objects
-    initial_objects_size = calculate_rootserver_size(kernel_config, initial_task_virt_region)
+    initial_objects_size = calculate_rootserver_size(kernel_config, initial_task_virt_region, x86_machine)
     initial_objects_align = _rootserver_max_size_bits(kernel_config)
 
     # Find an appropriate region of normal memory to allocate the objects
@@ -1452,8 +1662,17 @@ def emulate_kernel_boot(
     sched_control_cap_count = kernel_config.num_cpus
     paging_cap_count = _get_arch_n_paging(kernel_config, initial_task_virt_region)
     page_cap_count = initial_task_virt_region.size // kernel_config.minimum_page_size
+    # On x84_64 we have one more frame for the extra bootinfo region.
+    # @mat: there could in theory be more than one frame.
+    if kernel_config.arch == KernelArch.X86_64:
+        page_cap_count += 1
     first_untyped_cap = fixed_cap_count + paging_cap_count + sched_control_cap_count + page_cap_count
-    schedcontrol_cap = fixed_cap_count + paging_cap_count
+
+    # On X86 the schedcontrol caps are created before the paging caps.
+    if kernel_config.arch == KernelArch.X86_64:
+        schedcontrol_cap = fixed_cap_count
+    else:
+        schedcontrol_cap = fixed_cap_count + paging_cap_count
 
     # Determining seL4_MaxUntypedBits
     if kernel_config.arch == KernelArch.AARCH64 or kernel_config.arch == KernelArch.X86_64:
@@ -1485,7 +1704,7 @@ def emulate_kernel_boot(
     )
 
 
-def calculate_rootserver_size(kernel_config: KernelConfig, initial_task_region: MemoryRegion) -> int:
+def calculate_rootserver_size(kernel_config: KernelConfig, initial_task_region: MemoryRegion, x86_machine) -> int:
     # FIXME: These constants should ideally come from the config / kernel
     # binary not be hard coded here.
     # But they are constant so it isn't too bad.
@@ -1525,10 +1744,16 @@ def calculate_rootserver_size(kernel_config: KernelConfig, initial_task_region: 
     size += 1 << (tcb_bits)
     size += 2 * (1 << page_bits)
     size += 1 << asid_pool_bits
+    if kernel_config.arch == KernelArch.X86_64:
+        # One more page for the extra boot info.
+        size += 1 << page_bits
     size += 1 << vspace_bits
-    size += _get_arch_n_paging(kernel_config, initial_task_region) * (1 << page_table_bits)
     size += 1 << min_sched_context_bits
+    size += _get_arch_n_paging(kernel_config, initial_task_region) * (1 << page_table_bits)
 
+    if kernel_config.arch == KernelArch.X86_64:
+        # Add VT-d pages.
+        size += _vtd_get_n_paging(x86_machine) * (1 << page_table_bits)
     return size
 
 

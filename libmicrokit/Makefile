@@ -7,17 +7,21 @@ ifeq ($(strip $(BUILD_DIR)),)
 $(error BUILD_DIR must be specified)
 endif
 
-# ifeq ($(strip $(GCC_CPU)),)
-# $(error GCC_CPU must be specified)
-# endif
-
 ifeq ($(strip $(ARCH)),)
 $(error ARCH must be specified)
 endif
 
-# ifeq ($(strip $(TOOLCHAIN)),)
-# $(error TOOLCHAIN must be specified)
-# endif
+ifeq ($(ARCH),aarch64)
+ifeq ($(strip $(GCC_CPU)),)
+$(error GCC_CPU must be specified for ARCH=$(ARCH))
+endif
+endif
+
+ifeq ($(ARCH),x86_64)
+ifeq ($(strip $(GCC_MARCH)),)
+$(error GCC_MARCH must be specified for ARCH=$(ARCH))
+endif
+endif
 
 ifeq ($(ARCH),aarch64)
 	C_FLAGS_ARCH := -mcpu=$(GCC_CPU) -mgeneral-regs-only
@@ -38,21 +42,21 @@ else ifeq ($(ARCH),riscv32)
 	ASM_CPP_FLAGS_ARCH := -march=$(MARCH) -mabi=$(MABI)
 	ASM_FLAGS_ARCH := -g -march=$(MARCH) -mabi=$(MABI)
 	ARCH_DIR := riscv
+else ifeq ($(ARCH),x86_64)
+	C_FLAGS_ARCH := -march=$(GCC_MARCH) -DARCH_x86_64
+	ASM_CPP_FLAGS_ARCH := -march=generic64
+	ASM_FLAGS_ARCH := -march=generic64
+	ARCH_DIR := x86_64
 else
-	$(error ARCH must be aarch64 or riscv64 or riscv32)
+	$(error ARCH must be aarch64 or riscv64 or riscv32 or x86_64)
 endif
 
 C_FLAGS := -std=gnu11 -g -O3 -nostdlib -ffreestanding -Wall -Wno-maybe-uninitialized -Wno-unused-function -Werror -Iinclude -I$(SEL4_SDK)/include $(C_FLAGS_ARCH)
 ASM_CPP_FLAGS := -x assembler-with-cpp -c -g $(ASM_CPP_FLAGS_ARCH)
 ASM_FLAGS := -g $(ASM_FLAGS_ARCH)
 
-ifeq ($(ARCH),x86_64)
-	GCC := gcc
-	AS := as
-else
-	GCC := $(TOOLCHAIN)gcc
-	AS := $(TOOLCHAIN)as
-endif
+GCC := $(TOOLCHAIN)gcc
+AS := $(TOOLCHAIN)as
 
 LIBS := libmicrokit.a
 OBJS := main.o crt0.o dbg.o

@@ -7,17 +7,21 @@ ifeq ($(strip $(BUILD_DIR)),)
 $(error BUILD_DIR must be specified)
 endif
 
-# ifeq ($(strip $(GCC_CPU)),)
-# $(error GCC_CPU must be specified)
-# endif
-
 ifeq ($(strip $(ARCH)),)
 $(error ARCH must be specified)
 endif
 
-# ifeq ($(strip $(TOOLCHAIN)),)
-# $(error TOOLCHAIN must be specified)
-# endif
+ifeq ($(ARCH),aarch64)
+ifeq ($(strip $(GCC_CPU)),)
+$(error GCC_CPU must be specified for ARCH=$(ARCH))
+endif
+endif
+
+ifeq ($(ARCH),x86_64)
+ifeq ($(strip $(GCC_MARCH)),)
+$(error GCC_MARCH must be specified for ARCH=$(ARCH))
+endif
+endif
 
 ifeq ($(ARCH),aarch64)
 	C_FLAGS := -std=gnu11 -g -O3 -nostdlib -ffreestanding -mcpu=$(GCC_CPU) -DARCH_aarch64 -Wall -Wno-maybe-uninitialized -Werror -I$(SEL4_SDK)/include
@@ -31,17 +35,16 @@ else ifeq ($(ARCH),riscv32)
 	C_FLAGS := -mcmodel=medany -std=gnu11 -g -O3 -nostdlib -ffreestanding -march=rv32imac -mabi=ilp32 -DARCH_riscv32 -Wall -Wno-maybe-uninitialized -Werror -I$(SEL4_SDK)/include
 	ASM_CPP_FLAGS := -x assembler-with-cpp -c -g -march=rv32imac -mabi=ilp32
 	ASM_FLAGS := -g -march=rv32imac -mabi=ilp32
+else ifeq ($(ARCH),x86_64)
+	C_FLAGS := -std=gnu11 -g -O3 -nostdlib -ffreestanding -march=$(GCC_MARCH) -mabi=sysv -DARCH_x86_64 -Wall -Wno-maybe-uninitialized -Werror -I$(SEL4_SDK)/include
+	ASM_CPP_FLAGS := -x assembler-with-cpp -c -g -march=rv32imac -mabi=ilp32
+	ASM_FLAGS := -g -march=generic64
 else
-	$(error ARCH must be aarch64 or riscv64 or riscv32)
+	$(error ARCH must be aarch64 or riscv64 or riscv32 or x86_64)
 endif
 
-ifeq ($(ARCH),x86_64)
-	GCC := gcc
-	AS := as
-else
-	GCC := $(TOOLCHAIN)gcc
-	AS := $(TOOLCHAIN)as
-endif
+GCC := $(TOOLCHAIN)gcc
+AS := $(TOOLCHAIN)as
 
 PROGS := monitor.elf
 OBJECTS := main.o crt0.o debug.o util.o

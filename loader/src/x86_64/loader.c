@@ -1,249 +1,160 @@
 /*
- * Copyright 2021, Breakaway Consulting Pty. Ltd.
+ * Copyright 2023, Neutrality.
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
+
 #include <stdint.h>
-#include <strings.h>
-
-// @ivanv: merge this with loader.c aarch64
-
-_Static_assert(sizeof(uintptr_t) == 8 || sizeof(uintptr_t) == 4, "Expect uintptr_t to be 32-bit or 64-bit");
-
-#if UINTPTR_MAX == 0xffffffffUL
-#define WORD_SIZE 32
-#else
-#define WORD_SIZE 64
-#endif
-
-#if WORD_SIZE == 32
-#define MAGIC 0x5e14dead
-#else
-#define MAGIC 0x5e14dead14de5ead
-#endif
-
-#define ALIGN(n)  __attribute__((__aligned__(n)))
-
-#define MASK(x) ((1U << x) - 1)
-
-#define STACK_SIZE 4096
-
-#define FLAG_SEL4_HYP (1UL << 0)
-
-struct region {
-    uintptr_t load_addr;
-    uintptr_t size;
-    uintptr_t offset;
-    uintptr_t type;
-};
-
-struct loader_data {
-    uintptr_t magic;
-    uintptr_t flags;
-    uintptr_t kernel_entry;
-    uintptr_t ui_p_reg_start;
-    uintptr_t ui_p_reg_end;
-    uintptr_t pv_offset;
-    uintptr_t v_entry;
-    uintptr_t extra_device_addr_p;
-    uintptr_t extra_device_size;
-
-    uintptr_t num_regions;
-    struct region regions[];
-};
-
-typedef void (*sel4_entry)(
-    uintptr_t ui_p_reg_start,
-    uintptr_t ui_p_reg_end,
-    intptr_t pv_offset,
-    uintptr_t v_entry,
-    uintptr_t dtb_addr_p,
-    uintptr_t dtb_size,
-    // uintptr_t hart_id,
-    // uintptr_t core_id,
-    uintptr_t extra_device_addr_p,
-    uintptr_t extra_device_size
-);
-
-char _stack[STACK_SIZE] ALIGN(16);
-
-/* Paging structures for kernel mapping */
-uint64_t boot_lvl1_pt[1 << 9] ALIGN(1 << 12);
-uint64_t boot_lvl2_pt[1 << 9] ALIGN(1 << 12);
-/* Paging structures for identity mapping */
-uint64_t boot_lvl2_pt_elf[1 << 9] ALIGN(1 << 12);
-
-extern char _text;
-extern char _text_end;
-extern char _bss_end;
-const struct loader_data *loader_data = (void *)&_bss_end;
-
-static void
-memcpy(void *dst, const void *src, size_t sz)
-{
-    char *dst_ = dst;
-    const char *src_ = src;
-    while (sz-- > 0) {
-        *dst_++ = *src_++;
-    }
-}
-
-#define SBI_CONSOLE_PUTCHAR 1
-
-#define SBI_CALL(which, arg0, arg1, arg2) ({            \
-    register uintptr_t a0 asm ("a0") = (uintptr_t)(arg0);   \
-    register uintptr_t a1 asm ("a1") = (uintptr_t)(arg1);   \
-    register uintptr_t a2 asm ("a2") = (uintptr_t)(arg2);   \
-    register uintptr_t a7 asm ("a7") = (uintptr_t)(which);  \
-    asm volatile ("ecall"                   \
-              : "+r" (a0)               \
-              : "r" (a1), "r" (a2), "r" (a7)        \
-              : "memory");              \
-    a0;                         \
-})
-
-#define SBI_CALL_1(which, arg0) SBI_CALL(which, arg0, 0, 0)
-
-static void
-putc(uint8_t ch)
-{
-    SBI_CALL_1(SBI_CONSOLE_PUTCHAR, ch);
-}
-
-static void
-puts(const char *s)
-{
-    while (*s) {
-        putc(*s);
-        s++;
-    }
-}
-
-static char
-hexchar(unsigned int v)
-{
-    return v < 10 ? '0' + v : ('a' - 10) + v;
-}
-
-static void
-puthex32(uint32_t val)
-{
-    char buffer[8 + 3];
-    buffer[0] = '0';
-    buffer[1] = 'x';
-    buffer[8 + 3 - 1] = 0;
-    for (unsigned i = 8 + 1; i > 1; i--) {
-        buffer[i] = hexchar(val & 0xf);
-        val >>= 4;
-    }
-    puts(buffer);
-}
-
-static void
-puthex64(uint64_t val)
-{
-    char buffer[16 + 3];
-    buffer[0] = '0';
-    buffer[1] = 'x';
-    buffer[16 + 3 - 1] = 0;
-    for (unsigned i = 16 + 1; i > 1; i--) {
-        buffer[i] = hexchar(val & 0xf);
-        val >>= 4;
-    }
-    puts(buffer);
-}
+#include "utils.h"
+#include "multiboot.h"
 
 /*
- * Print out the loader data structure.
- *
- * This doesn't *do anything*. It helps when
- * debugging to verify that the data structures are
- * being interpretted correctly by the loader.
+ * These global variables are overwritten by the microkit tool when building the
+ * image.
  */
-static void
-print_flags(void)
+uint32_t kernel_entry;
+uint32_t monitor_addr;
+uint32_t monitor_size;
+uint64_t extra_device_addr_p;
+uint64_t extra_device_size;
+
+/* Name the initial task. This adds nothing but flare to the boot logs. */
+static char *monitor_cmdline = "microkit";
+
+/* Hardcode the serial port address.
+ * @mat: one day this should be configurable. */
+static const uint16_t serial_port = 0x3f8;
+
+/* Round a number up to the next 64-bit boundary. */
+static uint32_t roundup64(uint32_t n)
 {
-    if (loader_data->flags & FLAG_SEL4_HYP) {
-        puts("             seL4 configured as hypervisor\n");
-    }
+	if (n & 7)
+		n = (n & ~7) + 8;
+	return n;
 }
 
-static void
-print_loader_data(void)
+/* Serial code taken from seL4/src/plat/pc99/machine/io.c */
+static void serial_init(void)
 {
-    puts("LDR|INFO: Flags:                ");
-    puthex64(loader_data->flags);
-    puts("\n");
-    print_flags();
-    puts("LDR|INFO: Kernel:      entry:   ");
-    puthex64(loader_data->kernel_entry);
-    puts("\n");
+	while (!(in8(serial_port + 5) & 0x60)) /* wait until not busy */
+		;
 
-    puts("LDR|INFO: Root server: physmem: ");
-    puthex64(loader_data->ui_p_reg_start);
-    puts(" -- ");
-    puthex64(loader_data->ui_p_reg_end);
-    puts("\nLDR|INFO:              virtmem: ");
-    puthex64(loader_data->ui_p_reg_start - loader_data->pv_offset);
-    puts(" -- ");
-    puthex64(loader_data->ui_p_reg_end - loader_data->pv_offset);
-    puts("\nLDR|INFO:              entry  : ");
-    puthex64(loader_data->v_entry);
-    puts("\n");
+	out8(serial_port + 1, 0x00); /* disable generating interrupts */
+	out8(serial_port + 3, 0x80); /* line control register: command: set divisor */
+	out8(serial_port,     0x01); /* set low byte of divisor to 0x01 = 115200 baud */
+	out8(serial_port + 1, 0x00); /* set high byte of divisor to 0x00 */
+	out8(serial_port + 3, 0x03); /* line control register: set 8 bit, no parity, 1 stop bit */
+	out8(serial_port + 4, 0x0b); /* modem control register: set DTR/RTS/OUT2 */
 
-    for (uint32_t i = 0; i < loader_data->num_regions; i++) {
-        const struct region *r = &loader_data->regions[i];
-        puts("LDR|INFO: region: ");
-        puthex32(i);
-        puts("   addr: ");
-        puthex64(r->load_addr);
-        puts("   size: ");
-        puthex64(r->size);
-        puts("   offset: ");
-        puthex64(r->offset);
-        puts("   type: ");
-        puthex64(r->type);
-        puts("\n");
-    }
+	in8(serial_port);     /* clear receiver serial_port */
+	in8(serial_port + 5); /* clear line status serial_port */
+	in8(serial_port + 6); /* clear modem status serial_port */
 }
 
-static void
-copy_data(void)
+static inline void putc(uint8_t ch)
 {
-    const void *base = &loader_data->regions[loader_data->num_regions];
-    for (uint32_t i = 0; i < loader_data->num_regions; i++) {
-        const struct region *r = &loader_data->regions[i];
-        puts("LDR|INFO: copying region ");
-        puthex32(i);
-        puts("\n");
-        memcpy((void *)(uintptr_t)r->load_addr, base + r->offset, r->size);
-    }
+	while ((in8(serial_port + 5) & 0x20) == 0)
+		;
+	out8(serial_port, ch);
 }
 
-static void
-start_kernel(void)
+static inline void puts(const char *s)
 {
+	while (*s)
+		putc(*s++);
 }
 
-int
-main(void)
+static int loader_multiboot2(uint32_t multiboot_info_ptr)
 {
-    puts("LDR|INFO: altloader for seL4 starting\n");
-    /* Check that the loader magic number is set correctly */
-    if (loader_data->magic != MAGIC) {
-        puts("LDR|ERROR: mismatch on loader data structure magic number\n");
-        return 1;
-    }
+	uint32_t *total_size = (uint32_t *) multiboot_info_ptr;
+	uint32_t last_tag_offset = 0;
 
-    print_loader_data();
+	/* Walk the list of multiboot info tags. */
+	for (uint32_t i = 2 * sizeof (uint32_t); i < *total_size; ) {
+		struct multiboot2_tag *tag = (void *) (multiboot_info_ptr + i);
 
-    copy_data();
+		/* Fail if we were given any multiboot module. */
+		if (tag->type == MULTIBOOT2_INFO_TAG_MODULE) {
+			puts("LDR|ERROR: multiboot modules not supported\r\n");
+			return -1;
+		}
 
-    puts("LDR|INFO: jumping to kernel\n");
-    start_kernel();
+		/* Break on the closing tag. */
+		if (tag->type == MULTIBOOT2_INFO_TAG_END && tag->size == 8) {
+			last_tag_offset = i;
+			break;
+		}
 
-    puts("LDR|ERROR: seL4 Loader: Error - KERNEL RETURNED\n");
-    goto fail;
+		/* Skip this tag and round up to the next 64-bit boundary. */
+		i = roundup64(i + tag->size);
+	}
 
-fail:
+	/* That shouldn't happen but who knows. */
+	if (!last_tag_offset) {
+		puts("LDR|ERROR: invalid boot information tag list\r\n");
+		return -1;
+	}
+
+	/*
+	 * From here onwards we are carelessly extending the list of multiboot2
+	 * tags without checking that we do not overwrite anything important.
+	 * So far there seem to be quite a lot of space between this tag list
+	 * and the next memory region in use so that's good enough for a
+	 * proof-of-concept implementation, but one this this should really be
+	 * cleaned up.
+	 */
+
+	/* Add a module tag for the monitor inittask ELF file. */
+	struct multiboot2_tag_module *module = (void *) (multiboot_info_ptr + last_tag_offset);
+	module->head.type = MULTIBOOT2_INFO_TAG_MODULE;
+	module->head.size = sizeof (*module) + strlen(monitor_cmdline) + 1;
+	module->mod_start = monitor_addr;
+	module->mod_end   = monitor_addr + monitor_size;
+	memcpy(&module->cmdline[0], monitor_cmdline, strlen(monitor_cmdline) + 1);
+
+	/* Account for the new tag. */
+	*total_size += roundup64(module->head.size);
+	last_tag_offset += roundup64(module->head.size);
+
+	/* Add a custom tag to register device memory: memory regions that will
+	 * be marked as device untyped by the kernel. This is an unofficial
+	 * addition to the multiboot2 specs. */
+	struct multiboot2_tag_device_memory *devmem = (void *) (multiboot_info_ptr + last_tag_offset);
+	devmem->head.type = MULTIBOOT2_INFO_TAG_DEVICE_MEMORY;
+	devmem->head.size = sizeof (*devmem);
+	devmem->dmem_addr = extra_device_addr_p;
+	devmem->dmem_size = extra_device_size;
+
+	/* Account for the new tag. */
+	*total_size += roundup64(devmem->head.size);
+	last_tag_offset += roundup64(devmem->head.size);
+
+	/* Add a new end tag to close the list. Note that we do not need to
+	 * account for this end tag since we have overwritten the previous one
+	 * which was already accounted for. */
+	struct multiboot2_tag *end = (void *) (multiboot_info_ptr + last_tag_offset);
+	end->type = MULTIBOOT2_INFO_TAG_END;
+	end->size = sizeof (*end);
+
+	return 0;
+}
+
+int loader(uint32_t multiboot_magic, uint32_t multiboot_info_ptr)
+{
+	serial_init();
+
+	switch (multiboot_magic) {
+	case MULTIBOOT1_BOOT_MAGIC:
+		puts("LDR|INFO: booted as Multiboot v1\r\n");
+		puts("LDR|ERROR: multiboot v1 not supported\r\n");
+		return -1;
+
+	case MULTIBOOT2_BOOT_MAGIC:
+		puts("LDR|INFO: booted as Multiboot v2\r\n");
+		return loader_multiboot2(multiboot_info_ptr);
+
+	default:
+		puts("LDR|ERROR: invalid multiboot magic\r\n");
+		return -1;
+	}
 }

@@ -108,7 +108,9 @@ class MemoryRegion:
             base_paddr = kernel_vaddr_to_paddr(kernel_virtual_base, base)
             end_paddr = kernel_vaddr_to_paddr(kernel_virtual_base, base + sz)
             base = machine_add(base, sz)
-            r.append(MemoryRegion(base_paddr, end_paddr))
+            # Note that seL4_MinUntypedBits is 4 on all supported targets.
+            if size_bits >= 4:
+                r.append(MemoryRegion(base_paddr, end_paddr))
 
         return r
 
