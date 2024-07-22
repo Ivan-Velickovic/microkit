@@ -15,6 +15,7 @@ typedef unsigned int microkit_channel;
 typedef unsigned int microkit_child;
 typedef seL4_MessageInfo_t microkit_msginfo;
 
+#define VSPACE_CAP 3
 #define MONITOR_EP 5
 /* Only valid in the 'benchmark' configuration */
 #define TCB_CAP 6
@@ -219,3 +220,52 @@ static inline void microkit_deferred_irq_ack(microkit_channel ch)
     microkit_signal_msg = seL4_MessageInfo_new(IRQAckIRQ, 0, 0, 0);
     microkit_signal_cap = (BASE_IRQ_CAP + ch);
 }
+
+#if defined(CONFIG_ARCH_ARM)
+/*
+ * This configuration option is always on, but we double check that is in
+ * enabled in case something changes or someone builds a Microkit SDK with
+ * it explicitly turned off.
+ */
+#if !defined(CONFIG_AARCH64_USER_CACHE_ENABLE)
+#error "libmicrokit requires CONFIG_AARCH64_USER_CACHE_ENABLE to be enabled"
+#endif
+
+#define ROUND_DOWN(n, b) (((n) >> (b)) << (b))
+#define LINE_START(a) ROUND_DOWN(a, CONFIG_L1_CACHE_LINE_SIZE_BITS)
+#define LINE_INDEX(a) (LINE_START(a) >> CONFIG_L1_CACHE_LINE_SIZE_BITS)
+
+static inline void microkit_arm_cache_data_clean(seL4_Word start, seL4_Word end)
+{
+    unsigned long line;
+    unsigned long index;
+
+    for (index = LINE_INDEX(start); index < LINE_INDEX(end) + 1; index++) {
+        line = index << CONFIG_L1_CACHE_LINE_SIZE_BITS;
+        asm volatile("dc cvac, %0" : : "r"(line));
+        asm volatile("dmb sy" ::: "memory");
+    }
+}
+
+static inline void microkit_arm_cache_data_invalidate(seL4_Word start, seL4_Word end)
+{
+    seL4_Error err;
+    err = seL4_ARM_VSpace_Invalidate_Data(VSPACE_CAP, start, end);
+    if (err != seL4_NoError) {
+        microkit_dbg_puts("microkit_arm_vspace_data_invalidate: error invalidating cached data pages\n");
+        microkit_internal_crash(err);
+    }
+}
+
+static inline void microkit_arm_cache_data_clean_invalidate(seL4_Word start, seL4_Word end)
+{
+    unsigned long line;
+    unsigned long index;
+
+    for (index = LINE_INDEX(start); index < LINE_INDEX(end) + 1; index++) {
+        line = index << CONFIG_L1_CACHE_LINE_SIZE_BITS;
+        asm volatile("dc civac, %0" : : "r"(line));
+        asm volatile("dsb sy" ::: "memory");
+    }
+}
+#endif

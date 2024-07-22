@@ -435,6 +435,8 @@ If the protection domain has children it must also implement:
     void microkit_vcpu_arm_ack_vppi(microkit_child vcpu, seL4_Word irq);
     seL4_Word microkit_vcpu_arm_read_reg(microkit_child vcpu, seL4_Word reg);
     void microkit_vcpu_arm_write_reg(microkit_child vcpu, seL4_Word reg, seL4_Word value);
+    void microkit_arm_cache_data_clean(seL4_Word start, seL4_Word end);
+    void microkit_arm_cache_data_invalidate(seL4_Word start, seL4_Word end);
 
 
 ## `void init(void)`
@@ -601,6 +603,14 @@ in the seL4 source code.
 Write to a register for a given virtual CPU with ID `vcpu`. The `reg` argument is the index of the
 register that is written to. The `value` argument is what the register will be set to.
 The list of registers is defined by the enum `seL4_VCPUReg` in the seL4 source code.
+
+## `void microkit_arm_cache_data_clean(uintptr_t start, uintptr_t end)`
+
+Clean cached data within a range of virtual addresses.
+
+## `void microkit_arm_cache_data_invalidate(uintptr_t start, uintptr_t end)`
+
+Invalidate cached data given a range of virtual addresses.
 
 # System Description File {#sysdesc}
 
