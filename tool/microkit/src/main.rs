@@ -3294,8 +3294,7 @@ fn main() -> Result<(), String> {
 
     let hypervisor = match arch {
         Arch::Aarch64 => json_str_as_bool(&kernel_config_json, "ARM_HYPERVISOR_SUPPORT")?,
-        // Hypervisor mode is not available on RISC-V
-        Arch::Riscv64 => false,
+        Arch::Riscv64 => json_str_as_bool(&kernel_config_json, "RISCV_HYPERVISOR_SUPPORT")?,
     };
 
     let arm_pa_size_bits = match arch {
