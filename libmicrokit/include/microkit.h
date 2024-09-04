@@ -135,7 +135,7 @@ static seL4_Word microkit_mr_get(seL4_Uint8 mr)
 }
 
 /* The following APIs are only available where the kernel is built as a hypervisor. */
-#if defined(CONFIG_ARM_HYPERVISOR_SUPPORT)
+#if defined(CONFIG_ARM_HYPERVISOR_SUPPORT) || defined(CONFIG_RISCV_HYPERVISOR_SUPPORT)
 static inline void microkit_vcpu_restart(microkit_child vcpu, seL4_Word entry_point)
 {
     seL4_Error err;
@@ -164,7 +164,9 @@ static inline void microkit_vcpu_stop(microkit_child vcpu)
         microkit_internal_crash(err);
     }
 }
+#endif
 
+#if defined(CONFIG_ARM_HYPERVISOR_SUPPORT)
 static inline void microkit_vcpu_arm_inject_irq(microkit_child vcpu, seL4_Uint16 irq, seL4_Uint8 priority,
                                                 seL4_Uint8 group, seL4_Uint8 index)
 {

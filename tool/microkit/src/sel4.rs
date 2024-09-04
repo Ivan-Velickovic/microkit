@@ -242,7 +242,7 @@ impl ObjectType {
             },
             ObjectType::Vcpu => match config.arch {
                 Arch::Aarch64 => 12,
-                _ => panic!("Unknown vCPU object type value for given kernel config"),
+                Arch::Riscv64 => 11,
             },
         }
     }
@@ -423,7 +423,7 @@ enum InvocationLabel {
     RISCVASIDControlMakePool,
     RISCVASIDPoolAssign,
     // RISC-V IRQ
-    RISCVIRQIssueIRQHandlerTrigger,
+    RISCVCPUSetTCB,
 }
 
 impl std::fmt::Display for InvocationLabel {
@@ -1021,6 +1021,10 @@ impl Invocation {
             InvocationArgs::ArmVcpuSetTcb { vcpu, tcb } => {
                 arg_strs.push(Invocation::fmt_field_cap("tcb", tcb, cap_lookup));
                 (vcpu, &cap_lookup[&vcpu])
+            },
+            InvocationArgs::RiscvVcpuSetTcb { vcpu, tcb } => {
+                arg_strs.push(Invocation::fmt_field_cap("tcb", tcb, cap_lookup));
+                (vcpu, &cap_lookup[&vcpu])
             }
         };
         _ = writeln!(
@@ -1056,7 +1060,7 @@ impl Invocation {
             InvocationLabel::ARMPageMap | InvocationLabel::RISCVPageMap => "Page",
             InvocationLabel::CNodeCopy | InvocationLabel::CNodeMint => "CNode",
             InvocationLabel::SchedControlConfigureFlags => "SchedControl",
-            InvocationLabel::ARMVCPUSetTCB => "VCPU",
+            InvocationLabel::ARMVCPUSetTCB | InvocationLabel::RISCVVCPUSetTCB => "VCPU",
             _ => panic!(
                 "Internal error: unexpected label when getting object type '{:?}'",
                 self.label
@@ -1084,7 +1088,7 @@ impl Invocation {
             InvocationLabel::CNodeCopy => "Copy",
             InvocationLabel::CNodeMint => "Mint",
             InvocationLabel::SchedControlConfigureFlags => "ConfigureFlags",
-            InvocationLabel::ARMVCPUSetTCB => "VCPUSetTcb",
+            InvocationLabel::ARMVCPUSetTCB | InvocationLabel::RISCVVCPUSetTCB => "VCPUSetTcb",
             _ => panic!(
                 "Internal error: unexpected label when getting method name '{:?}'",
                 self.label
@@ -1126,6 +1130,7 @@ impl InvocationArgs {
                 InvocationLabel::SchedControlConfigureFlags
             }
             InvocationArgs::ArmVcpuSetTcb { .. } => InvocationLabel::ARMVCPUSetTCB,
+            InvocationArgs::RiscvVcpuSetTcb { .. } => InvocationLabel::RISCVVcpuSetTcb,
         }
     }
 
@@ -1277,6 +1282,7 @@ impl InvocationArgs {
                 vec![sched_context],
             ),
             InvocationArgs::ArmVcpuSetTcb { vcpu, tcb } => (vcpu, vec![], vec![tcb]),
+            InvocationArgs::RiscvVcpuSetTcb { vcpu, tcb } => (vcpu, vec![], vec![tcb]),
         }
     }
 }
@@ -1387,6 +1393,10 @@ pub enum InvocationArgs {
         flags: u64,
     },
     ArmVcpuSetTcb {
+        vcpu: u64,
+        tcb: u64,
+    },
+    RiscvVcpuSetTcb {
         vcpu: u64,
         tcb: u64,
     },
