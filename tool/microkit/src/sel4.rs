@@ -226,7 +226,7 @@ impl ObjectType {
             ObjectType::HugePage => 7,
             ObjectType::VSpace => match config.arch {
                 Arch::Aarch64 => 8,
-                Arch::Riscv64 => 10,
+                Arch::Riscv64 => ObjectType::PageTable.value(config),
             },
             ObjectType::SmallPage => match config.arch {
                 Arch::Aarch64 => 9,
