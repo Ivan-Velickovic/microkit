@@ -216,6 +216,7 @@ SUPPORTED_BOARDS = (
             "KernelRiscvExtD": True,
             "KernelRiscvExtF": True,
             "KernelRiscVHypervisorSupport": True,
+            "KernelRiscVNumVTimers": 1,
         },
     ),
     BoardInfo(
