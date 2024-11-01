@@ -423,7 +423,9 @@ enum InvocationLabel {
     RISCVASIDControlMakePool,
     RISCVASIDPoolAssign,
     // RISC-V IRQ
-    RISCVCPUSetTCB,
+    RISCVIRQIssueIRQHandlerTrigger,
+    // RISC-V vCPU
+    RISCVVCPUSetTCB,
 }
 
 impl std::fmt::Display for InvocationLabel {
@@ -1130,7 +1132,7 @@ impl InvocationArgs {
                 InvocationLabel::SchedControlConfigureFlags
             }
             InvocationArgs::ArmVcpuSetTcb { .. } => InvocationLabel::ARMVCPUSetTCB,
-            InvocationArgs::RiscvVcpuSetTcb { .. } => InvocationLabel::RISCVVcpuSetTcb,
+            InvocationArgs::RiscvVcpuSetTcb { .. } => InvocationLabel::RISCVVCPUSetTCB,
         }
     }
 
