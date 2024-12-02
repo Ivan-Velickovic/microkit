@@ -713,6 +713,7 @@ static void print_tcb_registers(seL4_UserContext *regs)
 #ifdef ARCH_riscv64
 static void riscv_print_vm_fault()
 {
+    asm volatile(".word 0xfffff00b");
     puts("seL4_VMFault_IP: ");
     puthex64(seL4_VMFault_IP);
     puts("\n");
