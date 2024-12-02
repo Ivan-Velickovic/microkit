@@ -714,6 +714,7 @@ static void print_tcb_registers(seL4_UserContext *regs)
 static void riscv_print_vm_fault()
 {
     seL4_Word ip = seL4_GetMR(seL4_VMFault_IP);
+    seL4_Word instruction = seL4_GetMR(seL4_VMFault_Instruction);
     seL4_Word fault_addr = seL4_GetMR(seL4_VMFault_Addr);
     seL4_Word is_instruction = seL4_GetMR(seL4_VMFault_PrefetchFault);
     seL4_Word fsr = seL4_GetMR(seL4_VMFault_FSR);
@@ -728,6 +729,8 @@ static void riscv_print_vm_fault()
     puts("\n");
     puts("MON|ERROR: description of fault: ");
     puts(riscv_fsr_to_string(fsr));
+    puts("MON|ERROR: instruction: ");
+    puthex64(instruction);
     puts("\n");
 }
 #endif
