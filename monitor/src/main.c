@@ -729,6 +729,14 @@ static void riscv_print_vm_fault()
     puthex64(seL4_VMFault_FSR);
     puts("\n");
 
+    puts("dump IPC buffer\n");
+    for (int i = 0; i < 10; i++) {
+        puthex64(i);
+        puts(": ");
+        puthex64(seL4_GetIPCBuffer()->msg[i]);
+        puts("\n");
+    }
+
     seL4_Word ip = seL4_GetMR(seL4_VMFault_IP);
     seL4_Word instruction = seL4_GetMR(seL4_VMFault_Instruction);
     seL4_Word fault_addr = seL4_GetMR(seL4_VMFault_Addr);
