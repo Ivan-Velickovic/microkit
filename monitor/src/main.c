@@ -830,6 +830,18 @@ static void monitor(void)
         tag = seL4_Recv(fault_ep, &badge, reply);
         label = seL4_MessageInfo_get_label(tag);
 
+        seL4_Word data[10];
+        for (int i = 0; i < 10; i++) {
+            data[i] = seL4_GetIPCBuffer()->msg[i];
+        }
+
+        for (int i = 0; i < 10; i++) {
+            puthex64(i);
+            puts(": ");
+            puthex64(data[i]);
+            puts("\n");
+        }
+
         seL4_Word tcb_cap = tcbs[badge];
 
         if (label == seL4_Fault_NullFault && badge < MAX_PDS) {
