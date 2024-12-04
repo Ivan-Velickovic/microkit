@@ -13,12 +13,12 @@ ENTRY(_start);
 
 SECTIONS
 {
-    . = 0x200000;
+    . = 0x100000;
     .ipc_buffer (NOLOAD): {
         __sel4_ipc_buffer_obj = .;
     }
 
-    . = ALIGN(0x1000);
+    . = 0x200000;
 
     .text :
     {

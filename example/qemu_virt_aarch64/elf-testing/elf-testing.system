@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+ Copyright 2021, Breakaway Consulting Pty. Ltd.
+
+ SPDX-License-Identifier: BSD-2-Clause
+-->
+<system>
+    <memory_region name="pd_code" size="0x20000" />
+    <memory_region name="hello" size="0x1000" />
+    <memory_region name="elf-b" size="0x20000" pd="pd" elf="b.elf" />
+    <memory_region name="elf-a" size="0x20000" pd="pd" elf="a.elf" />
+
+    <protection_domain name="elf-tester" priority="254">
+        <program_image path="elf-tester.elf" />
+
+        <map mr="elf-a" vaddr="0x4_000_000" perms="rw" setvar_vaddr="elf_a" />
+        <map mr="elf-b" vaddr="0x5_000_000" perms="rw" setvar_vaddr="elf_b" />
+        <map mr="pd_code" vaddr="0x6_000_000" perms="rw" setvar_vaddr="pd_code" />
+
+        <protection_domain name="pd" priority="254" id="0">
+            <program_image path="a.elf" />
+
+            <map mr="pd_code" vaddr="0x200_000" perms="rwx" />
+
+            <map mr="hello" vaddr="0x10_000_000" perms="rw" setvar_vaddr="testing" />
+        </protection_domain>
+    </protection_domain>
+
+    <channel>
+        <end pd="pd" id="1" />
+        <end pd="elf-tester" id="1" />
+    </channel>
+</system>

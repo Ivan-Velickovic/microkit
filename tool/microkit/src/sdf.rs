@@ -100,6 +100,8 @@ pub struct SysMemoryRegion {
     pub page_count: u64,
     pub phys_addr: Option<u64>,
     pub text_pos: Option<roxmltree::TextPos>,
+    pub elf: Option<PathBuf>,
+    pub pd: Option<String>,
 }
 
 impl SysMemoryRegion {
@@ -757,7 +759,7 @@ impl SysMemoryRegion {
         xml_sdf: &XmlSystemDescription,
         node: &roxmltree::Node,
     ) -> Result<SysMemoryRegion, String> {
-        check_attributes(xml_sdf, node, &["name", "size", "page_size", "phys_addr"])?;
+        check_attributes(xml_sdf, node, &["name", "size", "page_size", "phys_addr", "elf", "pd"])?;
 
         let name = checked_lookup(xml_sdf, node, "name")?;
         let size = sdf_parse_number(checked_lookup(xml_sdf, node, "size")?, node)?;
@@ -799,6 +801,18 @@ impl SysMemoryRegion {
             ));
         }
 
+        let elf = if let Some(xml_elf) = node.attribute("elf") {
+            Some(Path::new(xml_elf).to_path_buf())
+        } else {
+            None
+        };
+
+        let pd = if let Some(xml_pd) = node.attribute("pd") {
+            Some(xml_pd.to_string())
+        } else {
+            None
+        };
+
         let page_count = size / page_size;
 
         Ok(SysMemoryRegion {
@@ -808,6 +822,8 @@ impl SysMemoryRegion {
             page_count,
             phys_addr,
             text_pos: Some(xml_sdf.doc.text_pos_at(node.range().start)),
+            elf,
+            pd,
         })
     }
 }

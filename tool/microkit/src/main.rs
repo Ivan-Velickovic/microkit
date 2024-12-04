@@ -261,7 +261,7 @@ impl<'a> InitSystem<'a> {
             fut
         } else {
             panic!(
-                "Error: physical address {:x} not in any device untyped",
+                "Error: physical address 0x{:x} not in any device untyped",
                 phys_address
             )
         };
@@ -276,14 +276,14 @@ impl<'a> InitSystem<'a> {
                 );
             }
             panic!(
-                "Error: allocation for physical address {:x} is too large ({:x}) for untyped",
+                "Error: allocation for physical address 0x{:x} is too large ({:x}) for untyped",
                 phys_address, alloc_size
             );
         }
 
         if phys_address < fut.watermark {
             panic!(
-                "Error: physical address {:x} is below watermark",
+                "Error: physical address 0x{:x} is below watermark",
                 phys_address
             );
         }
@@ -451,11 +451,51 @@ struct BuiltSystem {
     tcb_caps: Vec<u64>,
     sched_caps: Vec<u64>,
     ntfn_caps: Vec<u64>,
-    pd_elf_regions: Vec<Vec<Region>>,
+    pd_loader_regions: Vec<Vec<Region>>,
     pd_setvar_values: Vec<Vec<u64>>,
+    custom_setvar_values: Vec<Vec<u64>>,
     kernel_objects: Vec<Object>,
     initial_task_virt_region: MemoryRegion,
     initial_task_phys_region: MemoryRegion,
+}
+
+pub fn custom_elf_pds<'a>(pds: &'a Vec<ProtectionDomain>, mrs: &'a Vec<SysMemoryRegion>) -> Vec<&'a ProtectionDomain> {
+    let custom_elf_pd_names: Vec<_> = mrs.iter().filter(|mr| mr.pd.is_some()).collect();
+    let custom_elf_pds_maybe: Vec<_> = custom_elf_pd_names.iter().map(|mr| pds.iter().find(|pd| pd.name == mr.pd.clone().unwrap())).collect();
+    println!("custom_elf_pd_names: {:?}", custom_elf_pd_names);
+    println!("custom_elf_pds_maybe: {:?}", custom_elf_pds_maybe);
+    let custom_elf_pds: Vec<_> = custom_elf_pds_maybe.iter().map(|maybe| maybe.unwrap()).collect();
+
+    return custom_elf_pds;
+}
+
+pub fn custom_write_symbols(
+    pds: Vec<&ProtectionDomain>,
+    pd_elf_files: &mut [ElfFile],
+    pd_setvar_values: &[Vec<u64>],
+) -> Result<(), String> {
+    for (i, pd) in pds.iter().enumerate() {
+        let elf = &mut pd_elf_files[i];
+        let name = pd.name.as_bytes();
+        let name_length = min(name.len(), PD_MAX_NAME_LENGTH);
+        elf.write_symbol("microkit_name", &name[..name_length])?;
+        elf.write_symbol("microkit_passive", &[pd.passive as u8])?;
+
+        for (setvar_idx, setvar) in pd.setvars.iter().enumerate() {
+            let value = pd_setvar_values[i][setvar_idx];
+            let result = elf.write_symbol(&setvar.symbol, &value.to_le_bytes());
+            if result.is_err() {
+                return Err(format!(
+                    "No symbol named '{}' in ELF '{}' for PD '{}'",
+                    setvar.symbol,
+                    pd.program_image.display(),
+                    pd.name
+                ));
+            }
+        }
+    }
+
+    Ok(())
 }
 
 pub fn pd_write_symbols(
@@ -877,9 +917,10 @@ fn emulate_kernel_boot(
 fn build_system(
     config: &Config,
     pd_elf_files: &Vec<ElfFile>,
+    custom_elf_files: &Vec<ElfFile>,
     kernel_elf: &ElfFile,
     monitor_elf: &ElfFile,
-    system: &SystemDescription,
+    system: &mut SystemDescription,
     invocation_table_size: u64,
     system_cnode_size: u64,
 ) -> Result<BuiltSystem, String> {
@@ -915,7 +956,13 @@ fn build_system(
             pd_elf_size += r.size();
         }
     }
-    let reserved_size = invocation_table_size + pd_elf_size;
+    let mut custom_elf_size = 0;
+    for custom_elf in custom_elf_files {
+        for r in phys_mem_regions_from_elf(custom_elf, config.minimum_page_size) {
+            custom_elf_size += r.size();
+        }
+    }
+    let reserved_size = invocation_table_size + pd_elf_size + custom_elf_size;
 
     // Now that the size is determined, find a free region in the physical memory
     // space.
@@ -1293,18 +1340,20 @@ fn build_system(
     //     as needed by protection domains based on mappings required
     let mut phys_addr_next = reserved_base + invocation_table_size;
     // Now we create additional MRs (and mappings) for the ELF files.
-    let mut pd_elf_regions: Vec<Vec<Region>> = Vec::with_capacity(system.protection_domains.len());
+    let mut pd_loader_regions: Vec<Vec<Region>> = Vec::new();
+
+    // let mut pd_elf_regions: Vec<Vec<Region>> = Vec::with_capacity(system.protection_domains.len());
     let mut extra_mrs = Vec::new();
     let mut pd_extra_maps: HashMap<&ProtectionDomain, Vec<SysMap>> = HashMap::new();
     for (i, pd) in system.protection_domains.iter().enumerate() {
-        pd_elf_regions.push(Vec::with_capacity(pd_elf_files[i].segments.len()));
+        pd_loader_regions.push(Vec::with_capacity(pd_elf_files[i].segments.len()));
         for (seg_idx, segment) in pd_elf_files[i].segments.iter().enumerate() {
             if !segment.loadable {
                 continue;
             }
 
             let segment_phys_addr = phys_addr_next + (segment.virt_addr % config.minimum_page_size);
-            pd_elf_regions[i].push(Region::new(
+            pd_loader_regions[i].push(Region::new(
                 format!("PD-ELF {}-{}", pd.name, seg_idx),
                 segment_phys_addr,
                 segment.data.len() as u64,
@@ -1336,6 +1385,8 @@ fn build_system(
                 page_count: aligned_size / PageSize::Small as u64,
                 phys_addr: Some(phys_addr_next),
                 text_pos: None,
+                elf: None,
+                pd: None,
             };
             phys_addr_next += aligned_size;
 
@@ -1354,11 +1405,56 @@ fn build_system(
 
             // Add to extra_mrs at the end to avoid movement issues with the MR since it's used in
             // constructing the SysMap struct
+            println!("mr: {}, phys_addr: 0x{:x}", mr.name, mr.phys_addr.unwrap());
             extra_mrs.push(mr);
         }
     }
 
-    assert!(phys_addr_next - (reserved_base + invocation_table_size) == pd_elf_size);
+    let custom_elf_mrs = system.memory_regions.iter_mut().filter(|mr| mr.elf.is_some());
+    for (i, mr) in custom_elf_mrs.enumerate() {
+        println!("mr: {}", mr.name);
+        assert!(mr.elf.is_some());
+
+        pd_loader_regions.push(Vec::with_capacity(custom_elf_files[i].segments.len()));
+
+        println!("setting '{}'.phys_addr = 0x{:x}", mr.name, phys_addr_next);
+        mr.phys_addr = Some(phys_addr_next);
+
+        for (seg_idx, segment) in custom_elf_files[i].segments.iter().enumerate() {
+            if !segment.loadable {
+                continue;
+            }
+
+            let segment_phys_addr = phys_addr_next + (segment.virt_addr % config.minimum_page_size);
+            println!("segment_phys_addr: 0x{:x}, mr.phys_addr: 0x{:x}", segment_phys_addr, mr.phys_addr.unwrap());
+            pd_loader_regions[system.protection_domains.len() + i].push(Region::new(
+                format!("CUSTOM-ELF {}-{}", mr.name, seg_idx),
+                segment_phys_addr,
+                segment.data.len() as u64,
+                seg_idx,
+            ));
+
+            for i in 0..10 {
+                println!("segment.data[{}]: 0x{:x}",i,  segment.data[0]);
+            }
+            let base_vaddr = util::round_down(segment.virt_addr, config.minimum_page_size);
+            let end_vaddr = util::round_up(
+                segment.virt_addr + segment.mem_size(),
+                config.minimum_page_size,
+            );
+            let aligned_size = end_vaddr - base_vaddr;
+            println!("base_vaddr: 0x{:x}, end_vaddr: 0x{:x}", base_vaddr, end_vaddr);
+
+            phys_addr_next += aligned_size;
+        }
+
+        mr.size = phys_addr_next - mr.phys_addr.unwrap();
+        // assert!(mr.size == custom_elf_size);
+        mr.page_size = PageSize::Small;
+        mr.page_count = mr.size / PageSize::Small as u64;
+    }
+
+    assert!(phys_addr_next - (reserved_base + invocation_table_size) == pd_elf_size + custom_elf_size);
 
     // Here we create a memory region/mapping for the stack for each PD.
     // We allocate the stack at the highest possible virtual address that the
@@ -1371,6 +1467,8 @@ fn build_system(
             page_count: pd.stack_size / PageSize::Small as u64,
             phys_addr: None,
             text_pos: None,
+            elf: None,
+            pd: None,
         };
 
         let stack_map = SysMap {
@@ -1502,6 +1600,7 @@ fn build_system(
             "Page({} {}): MR={} @ {:x}",
             page_size_human, page_size_label, mr.name, phys_addr
         );
+        println!("{}", name);
         let page = init_system.allocate_fixed_object(phys_addr, obj_type, name);
         mr_pages.get_mut(mr).unwrap().push(page);
     }
@@ -2850,6 +2949,27 @@ fn build_system(
         })
         .collect();
 
+    let custom_setvar_values: Vec<Vec<u64>> = custom_elf_pds(&system.protection_domains, &system.memory_regions)
+        .iter()
+        .map(|pd| {
+            pd.setvars
+                .iter()
+                .map(|setvar| match &setvar.kind {
+                    sdf::SysSetVarKind::Vaddr { address } => *address,
+                    sdf::SysSetVarKind::Paddr { region } => {
+                        let mr = system
+                            .memory_regions
+                            .iter()
+                            .find(|mr| mr.name == *region)
+                            .unwrap_or_else(|| panic!("Cannot find region: {}", region));
+
+                        mr_pages[mr][0].phys_addr
+                    }
+                })
+                .collect()
+        })
+        .collect();
+
     Ok(BuiltSystem {
         number_of_system_caps: final_cap_slot,
         invocation_data_size: system_invocation_data.len() as u64,
@@ -2864,8 +2984,9 @@ fn build_system(
         tcb_caps: tcb_caps[..system.protection_domains.len()].to_vec(),
         sched_caps: sched_context_caps,
         ntfn_caps: notification_caps,
-        pd_elf_regions,
+        pd_loader_regions,
         pd_setvar_values,
+        custom_setvar_values,
         kernel_objects,
         initial_task_phys_region,
         initial_task_virt_region,
@@ -2901,7 +3022,7 @@ fn write_report<W: std::io::Write>(
         comma_sep_usize(built_system.kernel_boot_info.untyped_objects.len())
     )?;
     writeln!(buf, "\n# Loader Regions\n")?;
-    for regions in &built_system.pd_elf_regions {
+    for regions in &built_system.pd_loader_regions {
         for region in regions {
             writeln!(buf, "       {}", region)?;
         }
@@ -3349,7 +3470,7 @@ fn main() -> Result<(), String> {
         "Microkit tool has various assumptions about the word size being 64-bits."
     );
 
-    let system = match parse(args.system, &xml, &kernel_config) {
+    let mut system = match parse(args.system, &xml, &kernel_config) {
         Ok(system) => system,
         Err(err) => {
             eprintln!("{err}");
@@ -3397,6 +3518,26 @@ fn main() -> Result<(), String> {
             }
         }
     }
+    println!("Custom ELF files:");
+    // Get all the custom ELFs for each PD:
+    let mut custom_elf_files = Vec::new();
+    for mr in &system.memory_regions {
+        if let Some(mr_elf) = &mr.elf {
+            println!("{}", mr_elf.display());
+            match get_full_path(mr_elf, &search_paths) {
+                Some(path) => {
+                    let elf = ElfFile::from_path(&path).unwrap();
+                    custom_elf_files.push(elf);
+                }
+                None => {
+                    return Err(format!(
+                        "unable to find custom ELF image: '{}'",
+                        mr_elf.display()
+                    ))
+                }
+            }
+        }
+    }
 
     let mut invocation_table_size = kernel_config.minimum_page_size;
     let mut system_cnode_size = 2;
@@ -3406,9 +3547,10 @@ fn main() -> Result<(), String> {
         built_system = build_system(
             &kernel_config,
             &pd_elf_files,
+            &custom_elf_files,
             &kernel_elf,
             &monitor_elf,
-            &system,
+            &mut system,
             invocation_table_size,
             system_cnode_size,
         )?;
@@ -3578,6 +3720,11 @@ fn main() -> Result<(), String> {
         &mut pd_elf_files,
         &built_system.pd_setvar_values,
     )?;
+    custom_write_symbols(
+        custom_elf_pds(&system.protection_domains, &system.memory_regions),
+        &mut custom_elf_files,
+        &built_system.custom_setvar_values,
+    )?;
 
     // Generate the report
     let report = match std::fs::File::create(args.report) {
@@ -3611,9 +3758,16 @@ fn main() -> Result<(), String> {
         built_system.reserved_region.base,
         &built_system.invocation_data,
     )];
-    for (i, regions) in built_system.pd_elf_regions.iter().enumerate() {
+    for (i, regions) in built_system.pd_loader_regions[..system.protection_domains.len()].iter().enumerate() {
         for r in regions {
             loader_regions.push((r.addr, r.data(&pd_elf_files[i])));
+        }
+    }
+    for (i, regions) in built_system.pd_loader_regions[system.protection_domains.len()..].iter().enumerate() {
+        println!("====== {}", i);
+        for r in regions {
+            println!("====== {}", r.name);
+            loader_regions.push((r.addr, r.data(&custom_elf_files[i])));
         }
     }
 
