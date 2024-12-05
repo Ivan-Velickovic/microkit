@@ -223,6 +223,30 @@ static inline void microkit_arm_smc_call(seL4_ARM_SMCContext *args, seL4_ARM_SMC
 }
 #endif
 
+#if defined(CONFIG_RISCV_HYPERVISOR_SUPPORT)
+static inline seL4_Word microkit_vcpu_riscv_read_reg(microkit_child vcpu, seL4_Word reg)
+{
+    seL4_RISCV_VCPU_ReadRegs_t ret;
+    ret = seL4_RISCV_VCPU_ReadRegs(BASE_VCPU_CAP + vcpu, reg);
+    if (ret.error != seL4_NoError) {
+        microkit_dbg_puts("microkit_vcpu_riscv_read_reg: error reading vCPU register\n");
+        microkit_internal_crash(ret.error);
+    }
+
+    return ret.value;
+}
+
+static inline void microkit_vcpu_riscv_write_reg(microkit_child vcpu, seL4_Word reg, seL4_Word value)
+{
+    seL4_Error err;
+    err = seL4_RISCV_VCPU_WriteRegs(BASE_VCPU_CAP + vcpu, reg, value);
+    if (err != seL4_NoError) {
+        microkit_dbg_puts("microkit_vcpu_riscv_write_reg: error writing vCPU register\n");
+        microkit_internal_crash(err);
+    }
+}
+#endif
+
 static inline void microkit_deferred_notify(microkit_channel ch)
 {
     microkit_have_signal = seL4_True;
