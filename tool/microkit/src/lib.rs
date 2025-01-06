@@ -271,6 +271,7 @@ pub struct KernelAllocation {
 
 pub struct UntypedAllocator {
     untyped_object: UntypedObject,
+    /// Offset into the untyped where we are up to allocating
     allocation_point: u64,
     allocations: Vec<KernelAllocation>,
 }
