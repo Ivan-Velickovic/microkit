@@ -257,9 +257,6 @@ SUPPORTED_BOARDS = (
             "KernelRiscVHypervisorSupport": True,
             "KernelRiscVNumVTimers": 1,
         },
-        examples={
-            "hello": Path("example/cheshire/hello")
-        }
     ),
 )
 
