@@ -270,6 +270,8 @@ SUPPORTED_BOARDS = (
             "KernelPlatform": "hifive-p550",
             "KernelRiscvExtD": True,
             "KernelRiscvExtF": True,
+            "KernelRiscVHypervisorSupport": True,
+            "KernelRiscVNumVTimers": 1,
         } | DEFAULT_KERNEL_OPTIONS_RISCV64,
     ),
     BoardInfo(
