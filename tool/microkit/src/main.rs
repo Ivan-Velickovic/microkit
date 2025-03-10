@@ -172,7 +172,10 @@ impl<'a> InitSystem<'a> {
         assert!(phys_address >= self.last_fixed_address);
         assert!(object_type.fixed_size(self.config).is_some());
 
-        let alloc_size = object_type.fixed_size(self.config).unwrap();
+        let alloc_size = match object_type {
+            ObjectType::PageTable => 1 << 14,
+            _ => object_type.fixed_size(self.config).unwrap(),
+        };
 
         // Find an untyped that contains the given address, it could either be
         // in device memory or normal memory.
@@ -279,7 +282,10 @@ impl<'a> InitSystem<'a> {
         if let Some(object_size) = object_type.fixed_size(self.config) {
             // An object with a fixed size should not be allocated with a given size
             assert!(size.is_none());
-            alloc_size = object_size;
+            alloc_size = match object_type {
+                ObjectType::PageTable => 1 << 14,
+                _ => object_size,
+            };
             api_size = 0;
         } else if object_type == ObjectType::CNode || object_type == ObjectType::SchedContext {
             let sz = size.unwrap();
@@ -1064,7 +1070,7 @@ fn build_system(
     //
     // Before mapping it is necessary to install page tables that can cover the region.
     let large_page_size = ObjectType::LargePage.fixed_size(config).unwrap();
-    let page_table_size = ObjectType::PageTable.fixed_size(config).unwrap();
+    let page_table_size = 1 << 14;
     let page_tables_required =
         util::round_up(invocation_table_size, large_page_size) / large_page_size;
     let page_table_allocation = kao
