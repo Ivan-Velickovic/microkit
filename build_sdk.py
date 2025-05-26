@@ -143,7 +143,7 @@ SUPPORTED_BOARDS = (
         name="imx8mp_evk",
         arch=KernelArch.AARCH64,
         gcc_cpu="cortex-a53",
-        loader_link_address=0x41000000,
+        loader_link_address=0x50000000,
         kernel_options={
             "KernelPlatform": "imx8mp-evk",
             "KernelIsMCS": True,
@@ -151,6 +151,8 @@ SUPPORTED_BOARDS = (
             "KernelArmHypervisorSupport": True,
             "KernelArmVtimerUpdateVOffset": False,
             "KernelAllowSMCCalls": True,
+            "KernelCustomDTS": "iot-gate.dts",
+            "KernelCustomDTSOverlay": "seL4/src/plat/imx8m-evk/overlay-imx8mp-evk.dts"
         },
     ),
     BoardInfo(
@@ -434,6 +436,8 @@ def build_sel4(
     for arg, val in sorted(config_args):
         if isinstance(val, bool):
             str_val = "ON" if val else "OFF"
+        elif arg == "KernelCustomDTSOverlay":
+            str_val = f"{Path.cwd()}/{val}"
         else:
             str_val = str(val)
         s = f"-D{arg}={str_val}"
