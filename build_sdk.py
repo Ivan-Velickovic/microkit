@@ -208,6 +208,8 @@ SUPPORTED_BOARDS = (
             "QEMU_MEMORY": "2048",
             "KernelRiscvExtD": True,
             "KernelRiscvExtF": True,
+            "KernelRiscVHypervisorSupport": True,
+            "KernelRiscVNumVTimers": 1,
         } | DEFAULT_KERNEL_OPTIONS_RISCV64,
     ),
     BoardInfo(

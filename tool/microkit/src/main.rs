@@ -1594,9 +1594,12 @@ fn build_system(
 
         for (vaddr, page_size) in vaddrs {
             assert!(config.hypervisor);
-            if !config.aarch64_vspace_s2_start_l1() {
-                upper_directory_vaddrs.insert(util::mask_bits(vaddr, 12 + 9 + 9 + 9));
-            }
+            match config.arch {
+                Arch::Aarch64 => if !config.aarch64_vspace_s2_start_l1() {
+                    upper_directory_vaddrs.insert(util::mask_bits(vaddr, 12 + 9 + 9 + 9));
+                },
+                Arch::Riscv64 => {}
+            };
             directory_vaddrs.insert(util::mask_bits(vaddr, 12 + 9 + 9));
             if page_size == PageSize::Small {
                 page_table_vaddrs.insert(util::mask_bits(vaddr, 12 + 9));
@@ -2706,23 +2709,38 @@ fn build_system(
     // Bind virtual machine TCBs to vCPUs
     if !virtual_machines.is_empty() {
         match config.arch {
-            Arch::Aarch64 => {}
-            _ => panic!("Support for virtual machines is only for AArch64"),
+            Arch::Aarch64 | Arch::Riscv64 => {}
         }
-        let mut vcpu_bind_invocation = Invocation::new(
-            config,
-            InvocationArgs::ArmVcpuSetTcb {
-                vcpu: vcpu_objs[0].cap_addr,
-                tcb: vcpu_tcb_objs[0].cap_addr,
-            },
-        );
+        let mut vcpu_bind_invocation = match config.arch {
+            Arch::Aarch64 => Invocation::new(
+                config,
+                InvocationArgs::ArmVcpuSetTcb {
+                    vcpu: vcpu_objs[0].cap_addr,
+                    tcb: vcpu_tcb_objs[0].cap_addr,
+                },
+            ),
+            Arch::Riscv64 => Invocation::new(
+                config,
+                InvocationArgs::RiscvVcpuSetTcb {
+                    vcpu: vcpu_objs[0].cap_addr,
+                    tcb: vcpu_tcb_objs[0].cap_addr,
+                },
+            ),
+        };
         let num_vcpus = virtual_machines
             .iter()
             .fold(0, |acc, vm| acc + vm.vcpus.len());
-        vcpu_bind_invocation.repeat(
-            num_vcpus as u32,
-            InvocationArgs::ArmVcpuSetTcb { vcpu: 1, tcb: 1 },
-        );
+
+        match config.arch {
+            Arch::Aarch64 => vcpu_bind_invocation.repeat(
+                num_vcpus as u32,
+                InvocationArgs::ArmVcpuSetTcb { vcpu: 1, tcb: 1 },
+            ),
+            Arch::Riscv64 => vcpu_bind_invocation.repeat(
+                num_vcpus as u32,
+                InvocationArgs::RiscvVcpuSetTcb { vcpu: 1, tcb: 1 },
+            ),
+        }
         system_invocations.push(vcpu_bind_invocation);
     }
 
@@ -3235,8 +3253,7 @@ fn main() -> Result<(), String> {
 
     let hypervisor = match arch {
         Arch::Aarch64 => json_str_as_bool(&kernel_config_json, "ARM_HYPERVISOR_SUPPORT")?,
-        // Hypervisor mode is not available on RISC-V
-        Arch::Riscv64 => false,
+        Arch::Riscv64 => json_str_as_bool(&kernel_config_json, "RISCV_HYPERVISOR_SUPPORT")?,
     };
 
     let arm_pa_size_bits = match arch {

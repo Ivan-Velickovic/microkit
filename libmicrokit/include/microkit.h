@@ -173,7 +173,7 @@ static seL4_Word microkit_mr_get(seL4_Uint8 mr)
 }
 
 /* The following APIs are only available where the kernel is built as a hypervisor. */
-#if defined(CONFIG_ARM_HYPERVISOR_SUPPORT)
+#if defined(CONFIG_ARM_HYPERVISOR_SUPPORT) || defined(CONFIG_RISCV_HYPERVISOR_SUPPORT)
 static inline void microkit_vcpu_restart(microkit_child vcpu, seL4_Word entry_point)
 {
     seL4_Error err;
@@ -202,7 +202,9 @@ static inline void microkit_vcpu_stop(microkit_child vcpu)
         microkit_internal_crash(err);
     }
 }
+#endif
 
+#if defined(CONFIG_ARM_HYPERVISOR_SUPPORT)
 static inline void microkit_vcpu_arm_inject_irq(microkit_child vcpu, seL4_Uint16 irq, seL4_Uint8 priority,
                                                 seL4_Uint8 group, seL4_Uint8 index)
 {
@@ -254,6 +256,30 @@ static inline void microkit_arm_smc_call(seL4_ARM_SMCContext *args, seL4_ARM_SMC
     err = seL4_ARM_SMC_Call(ARM_SMC_CAP, args, response);
     if (err != seL4_NoError) {
         microkit_dbg_puts("microkit_arm_smc_call: error making SMC call\n");
+        microkit_internal_crash(err);
+    }
+}
+#endif
+
+#if defined(CONFIG_RISCV_HYPERVISOR_SUPPORT)
+static inline seL4_Word microkit_vcpu_riscv_read_reg(microkit_child vcpu, seL4_Word reg)
+{
+    seL4_RISCV_VCPU_ReadRegs_t ret;
+    ret = seL4_RISCV_VCPU_ReadRegs(BASE_VCPU_CAP + vcpu, reg);
+    if (ret.error != seL4_NoError) {
+        microkit_dbg_puts("microkit_vcpu_riscv_read_reg: error reading vCPU register\n");
+        microkit_internal_crash(ret.error);
+    }
+
+    return ret.value;
+}
+
+static inline void microkit_vcpu_riscv_write_reg(microkit_child vcpu, seL4_Word reg, seL4_Word value)
+{
+    seL4_Error err;
+    err = seL4_RISCV_VCPU_WriteRegs(BASE_VCPU_CAP + vcpu, reg, value);
+    if (err != seL4_NoError) {
+        microkit_dbg_puts("microkit_vcpu_riscv_write_reg: error writing vCPU register\n");
         microkit_internal_crash(err);
     }
 }
