@@ -67,6 +67,10 @@ pub struct Config {
     /// False if the kernel config option has not been enabled.
     /// None on any non-ARM architecture.
     pub arm_smc: Option<bool>,
+    /// RISC-V-specific, where or not SBI forwarding is allowed
+    /// False if the kernel config option has not been enabled.
+    /// None on any non-RISC-V architecture.
+    pub riscv_sbi: Option<bool>,
     /// RISC-V specific, what kind of virtual memory system (e.g Sv39)
     pub riscv_pt_levels: Option<RiscvVirtualMemory>,
     pub invocations_labels: serde_json::Value,

@@ -49,6 +49,7 @@ const REPLY_CAP_IDX: u64 = 4;
 const MONITOR_EP_CAP_IDX: u64 = 5;
 const TCB_CAP_IDX: u64 = 6;
 const SMC_CAP_IDX: u64 = 7;
+const SBI_CAP_IDX: u64 = 8;
 
 const BASE_OUTPUT_NOTIFICATION_CAP: u64 = 10;
 const BASE_OUTPUT_ENDPOINT_CAP: u64 = BASE_OUTPUT_NOTIFICATION_CAP + 64;
@@ -73,6 +74,7 @@ const INIT_VSPACE_CAP_ADDRESS: u64 = 3;
 const IRQ_CONTROL_CAP_ADDRESS: u64 = 4; // Singleton
 const INIT_ASID_POOL_CAP_ADDRESS: u64 = 6;
 const SMC_CAP_ADDRESS: u64 = 15;
+const SBI_CAP_ADDRESS: u64 = 16;
 
 // const ASID_CONTROL_CAP_ADDRESS: u64 = 5; // Singleton
 // const IO_PORT_CONTROL_CAP_ADDRESS: u64 = 7; // Null on this platform
@@ -684,7 +686,7 @@ fn emulate_kernel_boot(
         panic!("Couldn't find appropriate region for initial task kernel objects");
     }
 
-    let fixed_cap_count = 0x10;
+    let fixed_cap_count = 0x11;
     let sched_control_cap_count = 1;
     let paging_cap_count = get_arch_n_paging(config, initial_task_virt_region);
     let page_cap_count = initial_task_virt_region.size() / config.minimum_page_size;
@@ -750,6 +752,7 @@ fn build_system(
     cap_address_names.insert(INIT_ASID_POOL_CAP_ADDRESS, "ASID Pool: init".to_string());
     cap_address_names.insert(IRQ_CONTROL_CAP_ADDRESS, "IRQ Control".to_string());
     cap_address_names.insert(SMC_CAP_IDX, "SMC".to_string());
+    cap_address_names.insert(SBI_CAP_IDX, "SBI".to_string());
 
     let system_cnode_bits = system_cnode_size.ilog2() as u64;
 
@@ -2358,6 +2361,25 @@ fn build_system(
         }
     }
 
+    for (pd_idx, pd) in system.protection_domains.iter().enumerate() {
+        if pd.sbi {
+            assert!(config.riscv_sbi.is_some() && config.riscv_sbi.unwrap());
+            let cnode_obj = &cnode_objs[pd_idx];
+            system_invocations.push(Invocation::new(
+                config,
+                InvocationArgs::CnodeCopy {
+                    cnode: cnode_obj.cap_addr,
+                    dest_index: SBI_CAP_IDX,
+                    dest_depth: PD_CAP_BITS,
+                    src_root: root_cnode_cap,
+                    src_obj: SBI_CAP_ADDRESS,
+                    src_depth: config.cap_address_bits,
+                    rights: Rights::All as u64, // FIXME: Check rights
+                },
+            ));
+        }
+    }
+
     // All minting is complete at this point
 
     // Associate badges
@@ -3257,6 +3279,11 @@ fn main() -> Result<(), String> {
         _ => None,
     };
 
+    let riscv_sbi = match arch {
+        Arch::Riscv64 => Some(json_str_as_bool(&kernel_config_json, "ALLOW_SBI_CALLS")?),
+        _ => None,
+    };
+
     let kernel_frame_size = match arch {
         Arch::Aarch64 => 1 << 12,
         Arch::Riscv64 => 1 << 21,
@@ -3276,6 +3303,7 @@ fn main() -> Result<(), String> {
         fpu: json_str_as_bool(&kernel_config_json, "HAVE_FPU")?,
         arm_pa_size_bits,
         arm_smc,
+        riscv_sbi,
         riscv_pt_levels: Some(RiscvVirtualMemory::Sv39),
         invocations_labels,
         device_regions: kernel_platform_config.devices,

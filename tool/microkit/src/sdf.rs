@@ -177,6 +177,7 @@ pub struct ProtectionDomain {
     pub passive: bool,
     pub stack_size: u64,
     pub smc: bool,
+    pub sbi: bool,
     pub program_image: PathBuf,
     pub maps: Vec<SysMap>,
     pub irqs: Vec<SysIrq>,
@@ -362,6 +363,9 @@ impl ProtectionDomain {
             // The SMC field is only available in certain configurations
             // but we do the error-checking further down.
             "smc",
+            // The SBI field is only available in certain configurations
+            // but we do the error-checking further down.
+            "sbi",
         ];
         if is_child {
             attrs.push("id");
@@ -444,6 +448,37 @@ impl ProtectionDomain {
                 None => {
                     return Err(
                         "ARM SMC forwarding support is not available for this architecture"
+                            .to_string(),
+                    )
+                }
+            }
+        }
+
+        let sbi = if let Some(xml_sbi) = node.attribute("sbi") {
+            match str_to_bool(xml_sbi) {
+                Some(val) => val,
+                None => {
+                    return Err(value_error(
+                        xml_sdf,
+                        node,
+                        "sbi must be 'true' or 'false'".to_string(),
+                    ))
+                }
+            }
+        } else {
+            false
+        };
+
+        if sbi {
+            match config.riscv_sbi {
+                Some(sbi_allowed) => {
+                    if !sbi_allowed {
+                        return Err(value_error(xml_sdf, node, "Using SBI support without RISC-V SBI forwarding support enabled in the kernel for this platform".to_string()));
+                    }
+                }
+                None => {
+                    return Err(
+                        "RISC-V SBI forwarding support is not available for this architecture"
                             .to_string(),
                     )
                 }
@@ -662,6 +697,7 @@ impl ProtectionDomain {
             passive,
             stack_size,
             smc,
+            sbi,
             program_image: program_image.unwrap(),
             maps,
             irqs,
