@@ -435,7 +435,7 @@ mod channel {
     fn test_ppcall_priority() {
         check_error(
             "ch_ppcall_priority.system",
-            "Error: PPCs must be to protection domains of strictly higher priorities; channel with PPC exists from pd test1 (priority: 2) to pd test2 (priority: 1)",
+            "Error: PPCs must be to protection domains of strictly higher priorities; channel with PPC exists from PD test1 (priority: 2) to PD test2 (priority: 1)",
         )
     }
 }

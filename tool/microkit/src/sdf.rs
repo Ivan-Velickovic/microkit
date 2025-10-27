@@ -1374,13 +1374,13 @@ pub fn parse(filename: &str, xml: &str, config: &Config) -> Result<SystemDescrip
         if ch.end_a.pp && pd_a.priority >= pd_b.priority {
             return Err(format!(
                 "Error: PPCs must be to protection domains of strictly higher priorities; \
-                        channel with PPC exists from pd {} (priority: {}) to pd {} (priority: {})",
+                        channel with PPC exists from PD {} (priority: {}) to PD {} (priority: {})",
                 pd_a.name, pd_a.priority, pd_b.name, pd_b.priority
             ));
         } else if ch.end_b.pp && pd_b.priority >= pd_a.priority {
             return Err(format!(
                 "Error: PPCs must be to protection domains of strictly higher priorities; \
-                        channel with PPC exists from pd {} (priority: {}) to pd {} (priority: {})",
+                        channel with PPC exists from PD {} (priority: {}) to PD {} (priority: {})",
                 pd_b.name, pd_b.priority, pd_a.name, pd_a.priority
             ));
         }
